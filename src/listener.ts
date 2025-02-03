@@ -28,6 +28,7 @@ class Listener extends EventEmitter {
         this.bot.on("end", this.onEnd);
         this.bot.on("spawn", () => { 
             this.bot.chat("/kill")
+            this.bot.chat("/suicide")
         })
 
         this.bot.on("entitySpawn", (entity) => { 
