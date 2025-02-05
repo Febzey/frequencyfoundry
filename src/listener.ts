@@ -52,6 +52,7 @@ class Listener extends EventEmitter {
             username: this.email,
             auth: "microsoft",
             version: process.env.version,
+            viewDistance: "tiny",
             respawn: false
         });
 

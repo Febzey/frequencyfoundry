@@ -10,7 +10,7 @@ import { database, discord } from "./index.js";
 export default class Foundry extends EventEmitter {
 
     /**
-     * Our last two soundwaves. Clear after two. and on two we perform calculations.
+     * Our last three soundwaves. Clear after three. and on three we perform calculations.
      */
     private soundCache = new Map<number, Soundwave>();
 
@@ -18,8 +18,7 @@ export default class Foundry extends EventEmitter {
     private listenerUserNames: { acc: number, email: string | undefined }[] = [
         { acc: 1, email: process.env.account1 },
         { acc: 2, email: process.env.account2 },
-        // {acc: 3, email: process.env.account3},
-        // {acc: 4, email: process.env.account4},
+        { acc: 3, email: process.env.account3 },
     ];
 
     constructor() {
@@ -38,15 +37,15 @@ export default class Foundry extends EventEmitter {
                 this.soundCache.set(this.listenerUserNames[i].acc, wave);
                 console.log(`User: ${wave.user} emitted a soundwave.`);
 
-                if (this.soundCache.size === 2) {
-                    console.log("Both listeners have emitted. Performing calculation...");
+                if (this.soundCache.size === 3) {
+                    console.log("All three listeners have emitted. Performing calculation...");
                     this.performCalculations();
                     this.soundCache.clear();
                 }
             });
 
             this.soundListeners.set(this.listenerUserNames[i].acc, listener);
-            await new Promise(r => setTimeout(r, 15000));
+            await new Promise(r => setTimeout(r, 16000));
 
         }
     }
@@ -54,23 +53,36 @@ export default class Foundry extends EventEmitter {
     private async performCalculations(): Promise<void> {
         const wave1 = this.soundCache.get(1);
         const wave2 = this.soundCache.get(2);
+        const wave3 = this.soundCache.get(3);
 
-        if (!wave1 || !wave2) {
-            console.error("Could not find both soundwaves.");
+        if (!wave1 || !wave2 || !wave3) {
+            console.error("Could not find all soundwaves.");
             return;
         }
 
-        const { bPosition: { x: x1, y: y1, z: z1 }, wPosition: { x: x2, y: y2, z: z2 } } = wave1;
-        const { bPosition: { x: x3, y: y3, z: z3 }, wPosition: { x: x4, y: y4, z: z4 } } = wave2;
+        console.log(`${wave1.user} => bPos(${wave1.bPosition.x},${wave1.bPosition.y},${wave1.bPosition.z}) wPos(${wave1.wPosition.x},${wave1.wPosition.y},${wave1.wPosition.z})`);
+        console.log(`${wave2.user} => bPos(${wave2.bPosition.x},${wave2.bPosition.y},${wave2.bPosition.z}) wPos(${wave2.wPosition.x},${wave2.wPosition.y},${wave2.wPosition.z})`);
+        console.log(`${wave3.user} => bPos(${wave3.bPosition.x},${wave3.bPosition.y},${wave3.bPosition.z}) wPos(${wave3.wPosition.x},${wave3.wPosition.y},${wave3.wPosition.z})`);
 
-        console.log(`${wave1.user} Heard a sound from ${x1}, ${y1}, ${z1} towards ${x2}, ${y2}, ${z2}`);
-        console.log(`${wave2.user} Heard a sound from ${x3}, ${y3}, ${z3} towards ${x4}, ${y4}, ${z4}`);
+        const pos = SoundWaveForge.calculateIntersectionForThreeLinesRefined(
+            wave1.bPosition, wave1.wPosition,
+            wave2.bPosition, wave2.wPosition,
+            wave3.bPosition, wave3.wPosition
+        );
 
-        const pos = SoundWaveForge.calculateIntersectionForTwoLines(wave1.bPosition, wave1.wPosition, wave2.bPosition, wave2.wPosition);
-    
-        if (!pos) return console.log("No intersection found.");
-        database.logSpawn(pos as { x: number, y: number, z: number });
-        discord.sendCoordinatesEmbed(process.env.channel as string, "yellow", pos as { x: number, y: number, z: number }, "Wither Spawn", process.env.mc_server as string, "A wither has just spawned!");
+        if (!pos) {
+            console.log("No intersection found.");
+            return;
+        }
+        database.logSpawn(pos);
+        discord.sendCoordinatesEmbed(
+            process.env.channel as string,
+            "yellow",
+            pos,
+            "Wither Spawn",
+            process.env.mc_server as string,
+            "A wither has just spawned!"
+        );
     }
 
 }
