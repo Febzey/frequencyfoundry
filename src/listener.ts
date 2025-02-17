@@ -48,7 +48,7 @@ class Listener extends EventEmitter {
     public start(): Bot {
         this.bot = createBot({
             host: process.env.host,
-            port: 25565,
+            port: Number(process.env.port),
             username: this.email,
             auth: "microsoft",
             version: process.env.version,
