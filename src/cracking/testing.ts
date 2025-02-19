@@ -60,7 +60,7 @@ function compareConfigurations(minBots: number, maxBots: number) {
   // Define our generation methods.
   // Note: For demonstration, we reuse the same functions as before.
 
-  const generators = [
+  const generators1 = [
     {name: "raw", func: (num: number) => {
       const raw = [
         { playerX: 13012557, playerZ: 5404072, relX: 13012692, relZ: 5404156 } ,
@@ -103,7 +103,7 @@ function compareConfigurations(minBots: number, maxBots: number) {
       
     }}
   ]
-  const generators1: { name: string; func: (num: number) => Observation[] }[] = [
+  const generators: { name: string; func: (num: number) => Observation[] }[] = [
     // {
     //   name: "Random Observations",
     //   func: (num: number) =>

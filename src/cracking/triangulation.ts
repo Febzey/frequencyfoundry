@@ -409,3 +409,134 @@ function computeIntersectionForOffsets(
   });
   return computeLeastSquaresIntersection(rays);
 }
+
+
+
+
+/**
+ * Given parameters (E.x, E.z, f_0, g_0, ..., f_{n-1}, g_{n-1}),
+ * computes the cost:
+ *
+ * For observation i (with position P_i and reported relative coordinate (relX_i, relZ_i)),
+ * let:
+ *   Q_i = (relX_i + f_i, relZ_i + g_i)
+ * and
+ *   u_i = (Q_i - P_i)/||Q_i - P_i||
+ *   v_i = (E - P_i)/||E - P_i||
+ *
+ * Then cost = sum_i || u_i - v_i ||^2.
+ */
+function costFunction(
+  observations: Observation[],
+  params: number[]
+): number {
+  const n = observations.length;
+  const E: Point = { x: params[0], z: params[1] };
+  let cost = 0;
+  for (let i = 0; i < n; i++) {
+    const obs = observations[i];
+    const f = params[2 + 2 * i];
+    const g = params[2 + 2 * i + 1];
+    const P: Point = { x: obs.playerX, z: obs.playerZ };
+    const Q: Point = { x: obs.relX + f, z: obs.relZ + g };
+    const vecQ = { x: Q.x - P.x, z: Q.z - P.z };
+    const vecE = { x: E.x - P.x, z: E.z - P.z };
+    const normQ = Math.hypot(vecQ.x, vecQ.z);
+    const normE = Math.hypot(vecE.x, vecE.z);
+    // If either vector is degenerate, skip (or add large penalty)
+    if (normQ < 1e-8 || normE < 1e-8) {
+      cost += 1e6;
+      continue;
+    }
+    const u = { x: vecQ.x / normQ, z: vecQ.z / normQ };
+    const v = { x: vecE.x / normE, z: vecE.z / normE };
+    const diffX = u.x - v.x;
+    const diffZ = u.z - v.z;
+    cost += diffX * diffX + diffZ * diffZ;
+  }
+  return cost;
+}
+
+/**
+ * Computes a numerical gradient of costFunction with respect to params.
+ */
+function computeGradient(
+  observations: Observation[],
+  params: number[],
+  delta: number = 1e-5
+): number[] {
+  const grad: number[] = [];
+  const baseCost = costFunction(observations, params);
+  for (let i = 0; i < params.length; i++) {
+    const temp = params[i];
+    params[i] = temp + delta;
+    const costPlus = costFunction(observations, params);
+    grad[i] = (costPlus - baseCost) / delta;
+    params[i] = temp; // restore
+  }
+  return grad;
+}
+
+/**
+ * Performs a simple gradient descent to minimize the cost function.
+ * We project the fractional parameters into [0,1].
+ */
+function optimizeTriangulation(
+  observations: Observation[],
+  numIters: number = 1000,
+  lr: number = 1e-3
+): number[] {
+  const n = observations.length;
+  // params: [E.x, E.z, f0, g0, f1, g1, ..., f_{n-1}, g_{n-1}]
+  // Initialize E as the nominal intersection (using (0.5,0.5) for fractions)
+  let initialFractions = new Array(2 * n).fill(0.5);
+  // For a rough initial E, we use the nominal intersection from our earlier method.
+  const nominalRays = observations.map(obs => {
+    const origin = { x: obs.playerX, z: obs.playerZ };
+    const center = { x: Math.floor(obs.relX) + 0.5, z: Math.floor(obs.relZ) + 0.5 };
+    const d = normalize({ x: center.x - origin.x, z: center.z - origin.z });
+    return { origin, d };
+  });
+  const initialE = computeLeastSquaresIntersection(nominalRays);
+  let params: number[] = [initialE.x, initialE.z, ...initialFractions];
+
+  for (let iter = 0; iter < numIters; iter++) {
+    const grad = computeGradient(observations, params);
+    for (let i = 0; i < params.length; i++) {
+      params[i] -= lr * grad[i];
+    }
+    // Project the fractional parts into [0,1]
+    for (let i = 2; i < params.length; i++) {
+      if (params[i] < 0) params[i] = 0;
+      if (params[i] > 1) params[i] = 1;
+    }
+    // Optionally, you can decrease the learning rate or check convergence.
+  }
+  return params;
+}
+
+/**
+ * New triangulation function that uses optimization to recover fractional offsets.
+ * It returns a refined estimate of the event location E and also (optionally) the recovered fractions.
+ *
+ * @param observations - Array of observations.
+ * @param numIters - Number of iterations for gradient descent.
+ * @param lr - Learning rate.
+ * @returns Object containing estimatedX, estimatedZ, and optionally fractions.
+ */
+export function triangulateEventOptimized(
+  observations: Observation[],
+  numIters: number = 1000,
+  lr: number = 1e-3
+): { estimatedX: number; estimatedZ: number; fractions: { f: number; g: number }[], errorRadius: number } | null {
+  if (observations.length === 0) return null;
+  const optimizedParams = optimizeTriangulation(observations, numIters, lr);
+  const E = { x: optimizedParams[0], z: optimizedParams[1] };
+  const fractions: { f: number; g: number }[] = [];
+  for (let i = 0; i < observations.length; i++) {
+    const f = optimizedParams[2 + 2 * i];
+    const g = optimizedParams[2 + 2 * i + 1];
+    fractions.push({ f, g });
+  }
+  return { estimatedX: E.x, estimatedZ: E.z, fractions, errorRadius: 0 };
+}
