@@ -15,7 +15,7 @@ export default class SoundWaveForge {
         bot1Pos: Position, bot1SoundPos: Position,
         bot2Pos: Position, bot2SoundPos: Position,
         viewDistance: number
-    ): { x: number; y: number; z: number; error: number } | null {
+    ): { x: number; y: number; z: number; error: number, angle: number } | null {
         // Create lines from each bot to its raw sound position
         const line1 = this.calculateLine(bot1Pos, bot1SoundPos);
         const line2 = this.calculateLine(bot2Pos, bot2SoundPos);
@@ -29,7 +29,7 @@ export default class SoundWaveForge {
         // Error grows as angle gets smaller
         const error = angle < 0.0001 ? Infinity : 1 / Math.sin(angle);
 
-        return { ...intersection, error };
+        return { ...intersection, error, angle: angle * (180 / Math.PI) };
     }
 
     private static calculateLine(bPosition: Position, wPosition: Position): Line3D {

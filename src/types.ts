@@ -1,6 +1,6 @@
-
-interface Soundwave {
+import { Vec3 } from "vec3";
+export interface Soundwave {
     user: string,
-    bPosition: { x:number,y:number,z:number},
-    wPosition: { x:number,y:number,z:number},
+    bPosition: Vec3,
+    wPosition: Vec3
 }
