@@ -540,3 +540,198 @@ export function triangulateEventOptimized(
   }
   return { estimatedX: E.x, estimatedZ: E.z, fractions, errorRadius: 0 };
 }
+
+/**
+ * Generates an array of evenly spaced numbers between 0 and 1, inclusive.
+ * @param steps - The number of divisions within [0,1] (e.g., 8 results in 9 values).
+ * @returns An array of numbers from 0 to 1 in increments of 1/steps.
+ */
+function generateCandidateFractions(steps: number): number[] {
+  const fractions: number[] = [];
+  for (let i = 0; i <= steps; i++) {
+    fractions.push(i / steps);
+  }
+  return fractions;
+}
+
+
+/**
+ * Computes a cost for a given set of offsets.
+ * For each observation i:
+ *   Q_i = (obs.relX + offset.dx, obs.relZ + offset.dz)
+ * Let u_i = (Q_i - P_i)/||Q_i - P_i|| and v_i = (E - P_i)/||E - P_i||,
+ * where E is the intersection computed with these offsets.
+ * The cost is the sum over observations of ||u_i - v_i||^2.
+ * Lower cost indicates better consistency.
+ */
+function computeCost(
+  observations: Observation[],
+  offsets: { dx: number; dz: number }[]
+): number {
+  const E = computeIntersectionForOffsets(observations, offsets);
+  let cost = 0;
+  for (let i = 0; i < observations.length; i++) {
+    const obs = observations[i];
+    const P: Point = { x: obs.playerX, z: obs.playerZ };
+    const Q: Point = { x: obs.relX + offsets[i].dx, z: obs.relZ + offsets[i].dz };
+    const vecQ = { x: Q.x - P.x, z: Q.z - P.z };
+    const normQ = Math.hypot(vecQ.x, vecQ.z);
+    const u = { x: vecQ.x / normQ, z: vecQ.z / normQ };
+
+    const vecE = { x: E.x - P.x, z: E.z - P.z };
+    const normE = Math.hypot(vecE.x, vecE.z);
+    const v = { x: vecE.x / normE, z: vecE.z / normE };
+
+    cost += Math.pow(u.x - v.x, 2) + Math.pow(u.z - v.z, 2);
+  }
+  return cost;
+}
+
+/**
+ * Computes the orthogonal distance from point E to a ray defined by (origin, d).
+ */
+function distancePointToRay(E: Point, ray: Ray): number {
+  const { origin: P, d } = ray;
+  const EP = { x: E.x - P.x, z: E.z - P.z };
+  const t = EP.x * d.x + EP.z * d.z;
+  const proj = { x: P.x + t * d.x, z: P.z + t * d.z };
+  return Math.hypot(E.x - proj.x, E.z - proj.z);
+}
+
+/**
+ * Computes the total residual cost for a given set of offsets.
+ * For each observation i, it computes the distance from the computed intersection E
+ * to the ray defined by the sensor and its adjusted computed coordinate.
+ * The cost is the sum of these distances.
+ */
+function computeResidualCost(
+  observations: Observation[],
+  offsets: { dx: number; dz: number }[]
+): number {
+  const E = computeIntersectionForOffsets(observations, offsets);
+  let totalResidual = 0;
+  for (let i = 0; i < observations.length; i++) {
+    const obs = observations[i];
+    const P: Point = { x: obs.playerX, z: obs.playerZ };
+    const samplePoint: Point = { x: obs.relX + offsets[i].dx, z: obs.relZ + offsets[i].dz };
+    const d = normalize({ x: samplePoint.x - P.x, z: samplePoint.z - P.z });
+    const ray: Ray = { origin: P, d };
+    totalResidual += distancePointToRay(E, ray);
+  }
+  return totalResidual;
+}
+/**
+ * Helper: Given a partial assignment of offsets (an array of length i),
+ * complete it by filling unassigned offsets with nominal values (0.5).
+ */
+function completeOffsets(
+  offsetsPartial: number[],
+  n: number
+): { dx: number; dz: number }[] {
+  const completed: { dx: number; dz: number }[] = [];
+  for (let j = 0; j < n; j++) {
+    if (2 * j + 1 < offsetsPartial.length) {
+      completed.push({ dx: offsetsPartial[2 * j], dz: offsetsPartial[2 * j + 1] });
+    } else {
+      completed.push({ dx: 0.5, dz: 0.5 });
+    }
+  }
+  return completed;
+}
+
+/**
+ * Recursively searches over candidate offsets using the given candidateFractions.
+ * For each observation, we have two parameters (dx and dz).
+ * Returns the candidate combination (offsets) that minimizes the residual cost,
+ * along with the computed intersection E.
+ *
+ * Uses a dynamic threshold: if the completed partial assignment’s cost is greater than
+ * bestResidual * (1 + alpha), then prune.
+ */
+function searchCandidateOffsets(
+  observations: Observation[],
+  candidateFractions: number[],
+  alpha: number = 0.1  // 10% tolerance
+): { bestOffsets: { dx: number; dz: number }[]; bestResidual: number; bestE: Point } {
+  const n = observations.length;
+  // Start with nominal offsets.
+  let bestOffsets: { dx: number; dz: number }[] = Array(n).fill(0).map(() => ({ dx: 0.5, dz: 0.5 }));
+  let bestResidual = computeResidualCost(observations, bestOffsets);
+  let bestE = computeIntersectionForOffsets(observations, bestOffsets);
+
+  function rec(i: number, offsets: number[]) {
+    // When we have a partial assignment, complete it with nominal values.
+    if (i % 2 === 0) {
+      const completed = completeOffsets(offsets, n);
+      const lowerBound = computeResidualCost(observations, completed);
+      if (lowerBound > bestResidual * (1 + alpha)) {
+        // Prune this branch.
+        return;
+      }
+    }
+    if (i === 2 * n) {
+      const offsetObjs = completeOffsets(offsets, n);
+      const residual = computeResidualCost(observations, offsetObjs);
+      if (residual < bestResidual) {
+        console.log('changing', residual, offsetObjs)
+        bestResidual = residual;
+        bestOffsets = offsetObjs;
+        bestE = computeIntersectionForOffsets(observations, offsetObjs);
+      }
+      return;
+    }
+    for (const candidate of candidateFractions) {
+      rec(i + 1, offsets.concat(candidate));
+    }
+  }
+  rec(0, []);
+  return { bestOffsets, bestResidual, bestE: bestE! };
+}
+/**
+ * Final triangulation function that uses a candidate search over fractional offsets,
+ * selects the combination that minimizes the residual cost (i.e. the sum of distances
+ * from the computed event to each observation's ray), and returns the refined event coordinate.
+ * The errorRadius is defined as the maximum distance from the refined event E to any intersection
+ * computed from the candidate offsets.
+ */
+export function triangulateEventByResidual(
+  observations: Observation[],
+  candidateFractions: number[] = generateCandidateFractions(8)
+): { estimatedX: number; estimatedZ: number; errorRadius: number; offsets: { dx: number; dz: number }[] } | null {
+  if (observations.length === 0) return null;
+  // Search the candidate space for the best offsets.
+  const searchResult = searchCandidateOffsets(observations, candidateFractions);
+  const bestE = searchResult.bestE;
+  console.log(bestE)
+  const bestResidual = searchResult.bestResidual;
+
+  // Next, compute the errorRadius by re-enumerating the candidate space and taking
+  // the maximum distance from bestE to the candidate intersections.
+  let maxDistance = 0;
+  const n = observations.length;
+  function rec(i: number, offsets: number[]) {
+    if (i === 2 * n) {
+      const offsetObjs: { dx: number; dz: number }[] = [];
+      for (let j = 0; j < n; j++) {
+        offsetObjs.push({ dx: offsets[2 * j], dz: offsets[2 * j + 1] });
+      }
+      const E = computeIntersectionForOffsets(observations, offsetObjs);
+      const d = Math.hypot(E.x - bestE.x, E.z - bestE.z);
+      if (d > maxDistance) {
+        maxDistance = d;
+      }
+      return;
+    }
+    for (const candidate of candidateFractions) {
+      rec(i + 1, offsets.concat(candidate));
+    }
+  }
+  rec(0, []);
+
+  return {
+    estimatedX: bestE.x,
+    estimatedZ: bestE.z,
+    errorRadius: maxDistance,
+    offsets: searchResult.bestOffsets
+  };
+}
