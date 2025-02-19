@@ -1,3 +1,5 @@
+import { Vec3 } from 'vec3';
+
 interface Position {
     x: number;
     y: number;
@@ -16,56 +18,60 @@ export default class SoundWaveForge {
         bot2Pos: Position, bot2SoundPos: Position,
         viewDistance: number
     ): { x: number; y: number; z: number; error: number } | null {
-        // Create lines from each bot to its raw sound position
         const line1 = this.calculateLine(bot1Pos, bot1SoundPos);
         const line2 = this.calculateLine(bot2Pos, bot2SoundPos);
-
-        // Find intersection
         const intersection = this.findIntersection(line1, line2);
         if (!intersection) return null;
-
-        // Compute angle between directions
         const angle = this.getAngleBetweenLines(line1.direction, line2.direction);
-        // Error grows as angle gets smaller
         const error = angle < 0.0001 ? Infinity : 1 / Math.sin(angle);
-
         return { ...intersection, error };
     }
 
+    static calculateFinalIntersection(
+        botPosA: Position, i12: Position,
+        botPosB: Position, i34: Position
+    ): Position | null {
+        const lineA = this.calculateLine(botPosA, i12);
+        const lineB = this.calculateLine(botPosB, i34);
+        return this.findIntersection(lineA, lineB);
+    }
+
     private static calculateLine(bPosition: Position, wPosition: Position): Line3D {
+        const origin = new Vec3(bPosition.x, bPosition.y, bPosition.z);
+        const wVec = new Vec3(wPosition.x, wPosition.y, wPosition.z);
+        const direction = wVec.subtract(origin);
         return {
-            origin: bPosition,
-            direction: {
-                x: wPosition.x - bPosition.x,
-                y: wPosition.y - bPosition.y,
-                z: wPosition.z - bPosition.z
-            }
+            origin: { x: origin.x, y: origin.y, z: origin.z },
+            direction: { x: direction.x, y: direction.y, z: direction.z }
         };
     }
 
     private static findIntersection(line1: Line3D, line2: Line3D): Position | null {
-        // Only compute x,z to keep it 2D
-        const { x: x1, z: z1 } = line1.origin;
-        const { x: dx1, z: dz1 } = line1.direction;
-        const { x: x2, z: z2 } = line2.origin;
-        const { x: dx2, z: dz2 } = line2.direction;
+        const o1 = new Vec3(line1.origin.x, 0, line1.origin.z);
+        const d1 = new Vec3(line1.direction.x, 0, line1.direction.z);
+        const o2 = new Vec3(line2.origin.x, 0, line2.origin.z);
+        const d2 = new Vec3(line2.direction.x, 0, line2.direction.z);
 
-        const denom = dx1 * dz2 - dz1 * dx2;
-        if (denom === 0) return null; // parallel
+        const denom = d1.x * d2.z - d1.z * d2.x;
+        if (Math.abs(denom) < 1e-9) return null;
 
-        const t = ((x2 - x1) * dz2 - (z2 - z1) * dx2) / denom;
+        const ox = o2.x - o1.x;
+        const oz = o2.z - o1.z;
+        const t = (ox * d2.z - oz * d2.x) / denom;
+
         return {
-            x: x1 + t * dx1,
+            x: o1.x + d1.x * t,
             y: 64,
-            z: z1 + t * dz1
+            z: o1.z + d1.z * t
         };
     }
 
     private static getAngleBetweenLines(d1: Position, d2: Position): number {
-        const dot = d1.x * d2.x + d1.z * d2.z;
-        const mag1 = Math.hypot(d1.x, d1.z);
-        const mag2 = Math.hypot(d2.x, d2.z);
-        if (mag1 === 0 || mag2 === 0) return 0;
-        return Math.acos(dot / (mag1 * mag2));
+        const v1 = new Vec3(d1.x, 0, d1.z);
+        const v2 = new Vec3(d2.x, 0, d2.z);
+        const dot = v1.dot(v2);
+        const mag1 = v1.distanceTo(new Vec3(0,0,0));
+        const mag2 = v2.distanceTo(new Vec3(0,0,0));
+        return (mag1 === 0 || mag2 === 0) ? 0 : Math.acos(dot / (mag1 * mag2));
     }
 }

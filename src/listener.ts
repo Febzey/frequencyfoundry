@@ -26,8 +26,8 @@ class Listener extends EventEmitter {
         this.bot.on("kicked", this.onKick);
         this.bot.on("end", this.onEnd);
         this.bot.on("spawn", async () => { 
-            this.bot.chat("/kill")
-            this.bot.chat("/suicide")
+            // this.bot.chat("/kill")
+            // this.bot.chat("/suicide")
         });
         this.bot._client.on("packet", this.onClientPacket);
         this.bot.on("login", () => {
@@ -58,10 +58,10 @@ class Listener extends EventEmitter {
             host: process.env.host,
             port: Number(process.env.port),
             username: this.email,
-            auth: "microsoft",
+           // auth: "microsoft",
             version: process.env.version,
-            viewDistance: 8,
-            respawn: false
+            viewDistance: "far",
+            respawn: true
         });
         this.bot.on("soundEffectHeard", (soundName, position) => {
             console.log(position, soundName);
