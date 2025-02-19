@@ -1,8 +1,8 @@
-import Listener from "./listener.js";
+import Listener from "./listener";
 import EventEmitter from "events";
-import SoundWaveForge from "./theForge.js";
-import { database, discord } from "./index.js";
-
+import SoundWaveForge from "./theForge";
+import { database, discord } from "./index";
+// import type {Soundwave} from './types'
 
 /**
  * The frequency foundry, all the listeners are created and will listen here.
