@@ -5,10 +5,10 @@ const effectIds = [
     { id: 1023, name: "wither_spawned" },
     { id: 1028, name: "ender_dragon_death" },
     { id: 1038, name: "end_portal_opened" }
-]
+];
 
 interface Soundwave {
-    user: string
+    user: string;
     bPosition: { x: number; y: number; z: number };
     wPosition: { x: number; y: number; z: number };
 }
@@ -16,34 +16,42 @@ interface Soundwave {
 class Listener extends EventEmitter {
 
     private bot: Bot;
-    private email: string
-
+    private email: string;
+    
     constructor(email: string) {
         super();
         this.email = email;
         this.bot = this.start();
-        // this.bot.on("chat", this.onSpawn);
         this.bot.on("error", this.onError);
         this.bot.on("kicked", this.onKick);
         this.bot.on("end", this.onEnd);
-        this.bot.on("spawn", () => { 
+        this.bot.on("spawn", async () => { 
             this.bot.chat("/kill")
             this.bot.chat("/suicide")
-        })
-
-        this.bot.on("entitySpawn", (entity) => { 
-            if (entity.type !== "player") return;
-            if (entity.username === this.bot.username) return;
-
-        })
-
-        // The juicy stuff
+        });
         this.bot._client.on("packet", this.onClientPacket);
         this.bot.on("login", () => {
             console.log(`${this.bot.username} has logged in.`)
-        })
-        // I <3 packets
+        });
     }
+
+    // // Helper: projects raw sound vector from bot's center to the effective render edge.
+    // private getCandidatePoint(raw: { x: number; y: number; z: number }): { x: number; y: number; z: number } {
+    //     const botPos = this.bot.entity.position;
+    //     const centerX = botPos.x;
+    //     const centerY = botPos.y;
+    //     const centerZ = botPos.z;
+    //     const dx = raw.x - centerX;
+    //     const dz = raw.z - centerZ;
+    //     const angle = Math.atan2(dz, dx);
+    //     const viewDistanceChunks = this.bot.settings.viewDistance as number;
+    //     const effectiveDistance = viewDistanceChunks * 16;
+    //     return {
+    //         x: Math.floor(centerX + effectiveDistance * Math.cos(angle)),
+    //         y: centerY,
+    //         z: Math.floor(centerZ + effectiveDistance * Math.sin(angle))
+    //     };
+    // }
 
     public start(): Bot {
         this.bot = createBot({
@@ -52,31 +60,32 @@ class Listener extends EventEmitter {
             username: this.email,
             auth: "microsoft",
             version: process.env.version,
-            viewDistance: "tiny",
+            viewDistance: 8,
             respawn: false
         });
-
-        return this.bot
+        this.bot.on("soundEffectHeard", (soundName, position) => {
+            console.log(position, soundName);
+        });
+        return this.bot;
     }
 
     private onClientPacket = (data: any, meta: any) => {
-        //  console.log(data, meta);
-
         if (meta.name === "world_event") {
             const id = data.effectId;
             const effect = effectIds.find(e => e.id === id);
-            if (effect) {
-                if (effect?.name === "wither_spawned") {
-                    const { x, y, z } = data.location;
-                    const wave: Soundwave = {
-                        user: this.bot.username,
-                        bPosition: { x: this.bot.entity.position.x, y: this.bot.entity.position.y, z: this.bot.entity.position.z },
-                        wPosition: { x, y, z }
-                    };
-
-                    this.emit("soundwave", wave);
-
-                }
+            if (effect && effect.name === "wither_spawned") {
+                const { x, y, z } = data.location;
+                const rawWPos = { x, y, z };
+                const wave: Soundwave = {
+                    user: this.bot.username,
+                    bPosition: { 
+                        x: this.bot.entity.position.x, 
+                        y: this.bot.entity.position.y, 
+                        z: this.bot.entity.position.z 
+                    },
+                    wPosition: rawWPos
+                };
+                this.emit("soundwave", wave);
             }
         }
     }
@@ -96,4 +105,4 @@ declare interface Listener {
     on(event: 'soundwave', listener: (wave: Soundwave) => void): this;
 }
 
-export default Listener
+export default Listener;

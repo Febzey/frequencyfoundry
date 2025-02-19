@@ -17,7 +17,7 @@ export default class Foundry extends EventEmitter {
     private soundListeners: Map<number, Listener> = new Map();
     private listenerUserNames: { acc: number, email: string | undefined }[] = [
         { acc: 1, email: process.env.account1 },
-        { acc: 3, email: process.env.account3 } // only two now
+        { acc: 3, email: process.env.account3 } ,// only two now
     ];
 
     constructor() {
@@ -61,9 +61,10 @@ export default class Foundry extends EventEmitter {
         console.log(`(1) ${wave1.user} => bPos(${wave1.bPosition.x},${wave1.bPosition.y},${wave1.bPosition.z}) wPos(${wave1.wPosition.x},${wave1.wPosition.y},${wave1.wPosition.z})`);
         console.log(`(3) ${wave3.user} => bPos(${wave3.bPosition.x},${wave3.bPosition.y},${wave3.bPosition.z}) wPos(${wave3.wPosition.x},${wave3.wPosition.y},${wave3.wPosition.z})`);
 
-        const pos = SoundWaveForge.calculateIntersectionForTwoLines(
+        const pos = SoundWaveForge.calculateAccurateWitherSpawn(
             wave1.bPosition, wave1.wPosition,
-            wave3.bPosition, wave3.wPosition
+            wave3.bPosition, wave3.wPosition,
+            8
         );
 
     
