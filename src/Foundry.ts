@@ -15,10 +15,9 @@ export default class Foundry extends EventEmitter {
     private soundCache = new Map<number, Soundwave>();
 
     private soundListeners: Map<number, Listener> = new Map();
-    private listenerUserNames: { acc: number, email: string | undefined }[] = [
-        { acc: 1, email: process.env.account1 },
-        { acc: 3, email: process.env.account3 } ,// only two now
-    ];
+    private listenerUserNames: { acc: number, email: string | undefined }[] = 
+        process.env.accounts!.split(",").map((acc, i) => ({ acc: i + 1, email: acc }))
+    
 
     constructor() {
         super();
