@@ -141,7 +141,6 @@ export function triangulateEvent(observations: Observation[]): { estimatedX: num
     const E = computeLeastSquaresIntersection(rays);
     extremePoints.push(E);
   }
-  console.log(extremePoints.length);
 
   // The worst-case error radius is the maximum distance from nominalE to any extreme solution.
   let errorRadius = 0;
@@ -249,8 +248,6 @@ export function triangulateEvent1(observations: Observation[]): { estimatedX: nu
       }
     }
   }
-
-  console.log(extremePoints.length)
 
   // Determine the worst-case error radius as the maximum distance from nominalE.
   let errorRadius = 0;

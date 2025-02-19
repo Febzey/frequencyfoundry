@@ -6,7 +6,7 @@ import type { Soundwave } from "./types";
 import "dotenv/config";
 import { time } from "discord.js";
 import { Observation, triangulateEventLinear } from "./cracking/triangulation";
-import { computeRelativeCoords } from "./cracking/test_build_data";
+import { computeRelativeCoords } from "./cracking/build_test_utils";
 
 /**
  * The frequency foundry, all the listeners are created and will listen here.

@@ -1,4 +1,4 @@
-import { computeRelativeCoords } from "./test_build_data";
+import { computeRelativeCoords } from "./build_test_utils";
 import { Observation, Point } from "./triangulation";
 
 /**

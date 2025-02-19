@@ -1,5 +1,5 @@
 import { triangulateEvent, Observation, triangulateEvent1, triangulateEvent2, triangulateEventLinear, Point } from "./triangulation";
-import { computeRelativeCoords } from "./test_build_data";
+import { computeRelativeCoords } from "./build_test_utils";
 import { Vec3 } from "vec3";
 import {  generateCircularObservations, generateCrossObservations, generateDiagonalCrossObservations, generateGridObservationsForN, generateObservations } from "./generators";
 
