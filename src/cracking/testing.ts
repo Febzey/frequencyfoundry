@@ -2,13 +2,16 @@ import { triangulateEvent, Observation, triangulateEvent1, triangulateEvent2, tr
 import { computeRelativeCoords } from "./build_test_utils";
 import { Vec3 } from "vec3";
 import {  generateCircularObservations, generateCrossObservations, generateDiagonalCrossObservations, generateGridObservationsForN, generateObservations } from "./generators";
+import { generateGraph } from "../drawing/test";
 
 interface SummaryRecord {
+  observations: Observation[];
+  offsets: {dx: number, dz: number}[];
   numBots: number;
   name: string;
   estimatedX: number;
   estimatedZ: number;
-  worstCaseError: number;
+  errorRadius: number;
   distance: number;
 }
 
@@ -55,57 +58,57 @@ function compareConfigurations(minBots: number, maxBots: number, actual: {x: num
 
 
   const generators: { name: string; func: (num: number) => Observation[] }[] = [
-    {name: "raw", func: (num: number) => {
-      const raw: any[] = [
-        { playerX: -80000, playerZ: -80000, relX: -79843, relZ: -80033 },
-        { playerX: 80000, playerZ: -80000, relX: 80147, relZ: -80060 },
-        { playerX: -80000, playerZ: 80000, relX: -79868, relZ: 79908 },
-        { playerX: 80000, playerZ: 80000, relX: 80095, relZ: 79871 }
-      ]
+    // {name: "raw", func: (num: number) => {
+    //   const raw: any[] = [
+    //     { playerX: -80000, playerZ: -80000, relX: -79843, relZ: -80033 },
+    //     { playerX: 80000, playerZ: -80000, relX: 80147, relZ: -80060 },
+    //     { playerX: -80000, playerZ: 80000, relX: -79868, relZ: 79908 },
+    //     { playerX: 80000, playerZ: 80000, relX: 80095, relZ: 79871 }
+    //   ]
       
-      const raw1 = raw.map(r => {
-        const {relX, relZ } = computeRelativeCoords(actual.x, actual.z, r.playerX, r.playerZ, viewDistance);
-        return { playerX: r.playerX, playerZ: r.playerZ, relX, relZ }
-      })
+    //   const raw1 = raw.map(r => {
+    //     const {relX, relZ } = computeRelativeCoords(actual.x, actual.z, r.playerX, r.playerZ, viewDistance);
+    //     return { playerX: r.playerX, playerZ: r.playerZ, relX, relZ }
+    //   })
 
-      return raw1
+    //   return raw1
       
-    }},
+    // }},
     
-    // {
-    //   name: "Random Observations",
-    //   func: (num: number) =>
-    //     generateObservations(
-    //       num,
-    //       actual.x,
-    //       actual.z,
-    //       minBotRadius,
-    //       maxBotRadius,
-    //       viewDistance
-    //     ),
-    // },
     {
-      name: "Circular Observations",
+      name: "Random Observations",
       func: (num: number) =>
-        generateCircularObservations(
+        generateObservations(
           num,
           actual.x,
           actual.z,
+          minBotRadius,
           maxBotRadius,
           viewDistance
         ),
     },
-    {
-      name: "Grid Observations",
-      func: (num: number) =>
-        generateGridObservationsForN(
-          num,
-          maxBotRadius * 2,
-          actual.x,
-          actual.z,
-          viewDistance
-        ),
-    },
+    // {
+    //   name: "Circular Observations",
+    //   func: (num: number) =>
+    //     generateCircularObservations(
+    //       num,
+    //       actual.x,
+    //       actual.z,
+    //       maxBotRadius,
+    //       viewDistance
+    //     ),
+    // },
+    // {
+    //   name: "Grid Observations",
+    //   func: (num: number) =>
+    //     generateGridObservationsForN(
+    //       num,
+    //       maxBotRadius * 2,
+    //       actual.x,
+    //       actual.z,
+    //       viewDistance
+    //     ),
+    // },
     // {
     //   name: "Cross Observations",
     //   func: (num: number) =>
@@ -131,7 +134,7 @@ function compareConfigurations(minBots: number, maxBots: number, actual: {x: num
   ];
 
   const summary: SummaryRecord[] = [];
-  const sortWorstCase = (a: SummaryRecord, b: SummaryRecord) => a.worstCaseError - b.worstCaseError;
+  const sortWorstCase = (a: SummaryRecord, b: SummaryRecord) => a.errorRadius - b.errorRadius;
   const sortDistance = (a: SummaryRecord, b: SummaryRecord) => a.distance - b.distance;
 
   // Loop over number-of-bots from minBots to maxBots.
@@ -151,13 +154,23 @@ function compareConfigurations(minBots: number, maxBots: number, actual: {x: num
         console.log("  Distance to actual event location:", dist);
         console.log("  Computation time:", performance.now() - start, "ms");
         console.log(result)
+
+        let offsets: {dx: number, dz: number}[] = []
+        if (result.offsets != null) offsets = result.offsets
+        else {
+          for (let i = 0; i < numBots; i++) {
+            offsets.push({dx: 0.5, dz: 0.5})
+          }
+        }
         summary.push({
+          observations,
           numBots,
           name: gen.name,
           estimatedX: result.estimatedX,
           estimatedZ: result.estimatedZ,
-          worstCaseError: result.errorRadius,
+          errorRadius: result.errorRadius,
           distance: dist,
+          offsets: offsets
         });
       } else {
         console.log(`${gen.name}: Triangulation returned null.`);
@@ -183,7 +196,7 @@ function compareConfigurations(minBots: number, maxBots: number, actual: {x: num
       console.log(numBots, "bots:", s.name, "\n  Estimated:", 
       "(", Math.floor(s.estimatedX), Math.floor(s.estimatedZ), ")",
       "\n  Distance:", s.distance,
-      "\n  Worst-case error:", s.worstCaseError);
+      "\n  Worst-case error:", s.errorRadius);
     }
   }
 
@@ -195,8 +208,11 @@ function compareConfigurations(minBots: number, maxBots: number, actual: {x: num
     overallBest.numBots, "bots with", overallBest.name, "\n  Estimated:", 
     Math.floor(overallBest.estimatedX), Math.floor(overallBest.estimatedZ), 
     "\n  Distance:", overallBest.distance, 
-    "\n  Worst-case error:", overallBest.worstCaseError
+    "\n  Worst-case error:", overallBest.errorRadius
   );
+
+  const obj = {...overallBest, actualX: actual.x, actualZ: actual.z}
+  generateGraph(overallBest.observations, obj, `${method.name}.png`)
 
   summary.sort(sortDistance);
   const overallBestDistance = summary[0];
@@ -205,9 +221,10 @@ function compareConfigurations(minBots: number, maxBots: number, actual: {x: num
     overallBestDistance.numBots, "bots with", overallBestDistance.name, "\n  Estimated:", 
     Math.floor(overallBestDistance.estimatedX), Math.floor(overallBestDistance.estimatedZ), 
     "\n  Distance:", overallBestDistance.distance, 
-    "\n  Worst-case error:", overallBestDistance.worstCaseError
+    "\n  Worst-case error:", overallBestDistance.errorRadius
   );
   console.log("\nActual Explosion Location:", actual);
+
 }
 
 const minBots = 4;
@@ -215,11 +232,11 @@ const maxBots = minBots;
 
 // World/explosion settings.
 const minWorldRadius = 10; // Minimum radius from the origin
-const maxWorldRadius = 500_000; // Maximum radius (world boundary)
+const maxWorldRadius = 5_000_000; // Maximum radius (world boundary)
 
 // Bot placement settings (for methods that use a radius).
 const minBotRadius = 0; // Minimum radius for bot placement
-const maxBotRadius = 200_000; // Maximum radius for bot placement
+const maxBotRadius = 2_000_000; // Maximum radius for bot placement
 
 // Generate a random explosion location.
 const actual = process.argv.length > 2 ? {x: parseInt(process.argv[2]), z: parseInt(process.argv[3])} : generateExplosionLocation(minWorldRadius, maxWorldRadius);

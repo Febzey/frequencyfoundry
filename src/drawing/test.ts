@@ -90,6 +90,16 @@ export function computeBoundingBox(
   return { minX, maxX, minZ, maxZ };
 }
 
+export function findMidpoint(inputs: RayInput[]) {
+  let sumX = 0;
+  let sumZ = 0;
+  for (const { playerX, playerZ } of inputs) {
+    sumX += playerX;
+    sumZ += playerZ;
+  }
+  return { x: sumX / inputs.length, z: sumZ / inputs.length };
+}
+
 /**
  * 2) Convert from (world X,Z) to (canvas x,y).
  *    We invert Z because Canvas y grows downward.
@@ -237,18 +247,22 @@ export function generateGraph(
   // 1) Compute bounding box
   const bbox = computeBoundingBox(inputs, data);
 
+
   // 2) Create canvas
   const canvasWidth = 4000;
   const canvasHeight = 4000;
   const canvas = createCanvas(canvasWidth, canvasHeight);
   const ctx = canvas.getContext("2d");
+  const padding = 50;
+
+  const rawMidpoint = findMidpoint(inputs);
+  const midpoint = toCanvasCoords(rawMidpoint.x, rawMidpoint.z, bbox, canvasWidth, canvasHeight, padding);
 
   // 3) Fill background
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
   // 4) Optionally draw axes if (0,0) in bounding box
-  const padding = 50;
   ctx.strokeStyle = "#ddd";
   ctx.lineWidth = 1;
   if (bbox.minX < 0 && bbox.maxX > 0) {
@@ -266,9 +280,23 @@ export function generateGraph(
     ctx.stroke();
   }
 
-  // 5) Draw each ray (extended)
+  // 5a) Draw each ray (extended)
   ctx.lineWidth = 2;
   for (let i = 0; i < inputs.length; i++) {
+    for (let dD = 0; dD <= 1; dD ++) {
+      drawRay(
+        ctx as any,
+        inputs[i],
+        {dx: dD, dz: dD},
+        bbox,
+        canvasWidth,
+        canvasHeight,
+        padding,
+        false,
+        dD === 0 ? 'green' : 'blue'
+      );
+    }
+
     drawRay(
       ctx as any,
       inputs[i],
@@ -276,8 +304,11 @@ export function generateGraph(
       bbox,
       canvasWidth,
       canvasHeight,
-      padding
+      padding,
+      true,
+      'red'
     );
+   
   }
 
   // 6) Draw the estimated intersection (purple)
@@ -315,6 +346,15 @@ export function generateGraph(
     ctx.beginPath();
     ctx.arc(actual.x, actual.y, 5, 0, 2 * Math.PI);
     ctx.fill();
+
+    // 8b) draw a line from actual to midpoint
+    ctx.strokeStyle = "yellow";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(actual.x, actual.y);
+    ctx.lineTo(midpoint.x, midpoint.y);
+    ctx.stroke();
+
   }
 
   // 9) Save the image
@@ -324,29 +364,30 @@ export function generateGraph(
 }
 
 
-const actualX = 250000;
-const actualZ = -150000;
+const actual = { x: 1010216, z: 1333096 }
 
 //
 // 1) Your Data
 //
 const inputs: RayInput[] = [
-  { playerX: -80000, playerZ: -80000, relX: -79843, relZ: -80033 },
-  { playerX: 80000, playerZ: -80000, relX: 80147, relZ: -80060 },
-  { playerX: -80000, playerZ: 80000, relX: -79868, relZ: 79908 },
-  { playerX: 80000, playerZ: 80000, relX: 80095, relZ: 79871 },
+  { playerX: -250000, playerZ: -250000, relX: -249900, relZ: -249874 },
+  { playerX: 250000, playerZ: -250000, relX: 250069, relZ: -249855 },
+  { playerX: -250000, playerZ: 250000, relX: -249878, relZ: 250104 },
+  { playerX: 250000, playerZ: 250000, relX: 250091, relZ: 250130 }
 ];
 
 const found = {
-  estimatedX: 249683.18097032863,
-  estimatedZ: -148106.02807458868,
-  errorRadius: 4135.731462382626,
+  estimatedX: 992175.0516387215,
+  estimatedZ: 1309655.7008427246,
+  errorRadius: 45287.86589650117,
   offsets: [
+    { dx: 0.75, dz: 0.5 },
+    { dx: 0, dz: 0 },
     { dx: 0.5, dz: 0.5 },
-    { dx: 0.5, dz: 0.5 },
-    { dx: 0.5, dz: 0.5 },
-    { dx: 0.5, dz: 0.5 },
-  ]
+    { dx: 0.75, dz: 1 }
+  ],
+  actualX: actual.x,
+  actualZ: actual.z
 }
 
 generateGraph(inputs, found, "output.png");
