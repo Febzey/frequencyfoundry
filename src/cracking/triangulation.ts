@@ -546,7 +546,7 @@ export function triangulateEventOptimized(
  * @param steps - The number of divisions within [0,1] (e.g., 8 results in 9 values).
  * @returns An array of numbers from 0 to 1 in increments of 1/steps.
  */
-function generateCandidateFractions(steps: number): number[] {
+export function generateCandidateFractions(steps: number): number[] {
   const fractions: number[] = [];
   for (let i = 0; i <= steps; i++) {
     fractions.push(i / steps);
@@ -661,19 +661,19 @@ function searchCandidateOffsets(
 
   function rec(i: number, offsets: number[]) {
     // When we have a partial assignment, complete it with nominal values.
-    if (i % 2 === 0) {
-      const completed = completeOffsets(offsets, n);
-      const lowerBound = computeResidualCost(observations, completed);
-      if (lowerBound > bestResidual * (1 + alpha)) {
-        // Prune this branch.
-        return;
-      }
-    }
+    // if (i % 2 === 0) {
+    //   const completed = completeOffsets(offsets, n);
+    //   const lowerBound = computeResidualCost(observations, completed);
+    //   if (lowerBound > bestResidual * (1 + alpha)) {
+    //     // Prune this branch.
+    //     return;
+    //   }
+    // }
     if (i === 2 * n) {
       const offsetObjs = completeOffsets(offsets, n);
       const residual = computeResidualCost(observations, offsetObjs);
       if (residual < bestResidual) {
-        console.log('changing', residual, offsetObjs)
+        // console.log('changing', residual, offsetObjs)
         bestResidual = residual;
         bestOffsets = offsetObjs;
         bestE = computeIntersectionForOffsets(observations, offsetObjs);
@@ -696,13 +696,13 @@ function searchCandidateOffsets(
  */
 export function triangulateEventByResidual(
   observations: Observation[],
-  candidateFractions: number[] = generateCandidateFractions(8)
+  candidateFractions: number[] = generateCandidateFractions(4)
 ): { estimatedX: number; estimatedZ: number; errorRadius: number; offsets: { dx: number; dz: number }[] } | null {
   if (observations.length === 0) return null;
   // Search the candidate space for the best offsets.
   const searchResult = searchCandidateOffsets(observations, candidateFractions);
   const bestE = searchResult.bestE;
-  console.log(bestE)
+  // console.log(bestE)
   const bestResidual = searchResult.bestResidual;
 
   // Next, compute the errorRadius by re-enumerating the candidate space and taking

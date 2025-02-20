@@ -1,4 +1,4 @@
-import { triangulateEvent, Observation, triangulateEvent1, triangulateEvent2, triangulateEventLinear, Point, triangulateEventByResidual } from "./triangulation";
+import { triangulateEvent, Observation, triangulateEvent1, triangulateEvent2, triangulateEventLinear, Point, triangulateEventByResidual, generateCandidateFractions } from "./triangulation";
 import { computeRelativeCoords } from "./build_test_utils";
 import { Vec3 } from "vec3";
 import {  generateCircularObservations, generateCrossObservations, generateDiagonalCrossObservations, generateGridObservationsForN, generateObservations } from "./generators";
@@ -43,22 +43,25 @@ function generateExplosionLocation(minRadius: number, maxRadius: number): { x: n
  * @param minBots - The minimum number of bot observations.
  * @param maxBots - The maximum number of bot observations.
  */
-function compareConfigurations(minBots: number, maxBots: number, actual: {x: number, z: number}, method: (obs: Observation[]) => any) {
+function compareConfigurations(minBots: number, maxBots: number, actual: {x: number, z: number}, method: (obs: Observation[], ...args:any[]) => any, ...args: any[]) {
 
   const viewDistance = 160; // Server's view distance
 
-  // Bot placement settings (for methods that use a radius).
-  const minBotRadius = 0; // Minimum radius for bot placement
-  const maxBotRadius = 29_900_000; // Maximum radius for bot placement
 
   console.log(`Generated Explosion at: (${actual.x}, ${actual.z})\n`);
 
   // Define our generation methods.
   // Note: For demonstration, we reuse the same functions as before.
 
-  const generators1 = [
+
+  const generators: { name: string; func: (num: number) => Observation[] }[] = [
     {name: "raw", func: (num: number) => {
-      const raw: any[] = []
+      const raw: any[] = [
+        { playerX: -80000, playerZ: -80000, relX: -79843, relZ: -80033 },
+        { playerX: 80000, playerZ: -80000, relX: 80147, relZ: -80060 },
+        { playerX: -80000, playerZ: 80000, relX: -79868, relZ: 79908 },
+        { playerX: 80000, playerZ: 80000, relX: 80095, relZ: 79871 }
+      ]
       
       const raw1 = raw.map(r => {
         const {relX, relZ } = computeRelativeCoords(actual.x, actual.z, r.playerX, r.playerZ, viewDistance);
@@ -67,9 +70,8 @@ function compareConfigurations(minBots: number, maxBots: number, actual: {x: num
 
       return raw1
       
-    }}
-  ]
-  const generators: { name: string; func: (num: number) => Observation[] }[] = [
+    }},
+    
     // {
     //   name: "Random Observations",
     //   func: (num: number) =>
@@ -138,7 +140,8 @@ function compareConfigurations(minBots: number, maxBots: number, actual: {x: num
     // For each generation method, generate observations and run triangulation.
     generators.forEach((gen) => {
       const observations = gen.func(numBots);
-      const result = method(observations);
+      const start = performance.now();
+      const result = method(observations, ...args);
       if (result) {
         const dist = Math.hypot(result.estimatedX - actual.x, result.estimatedZ - actual.z);
         console.log(` === ${gen.name} ===`)
@@ -146,6 +149,7 @@ function compareConfigurations(minBots: number, maxBots: number, actual: {x: num
         console.log("  Estimated event coordinate:", Math.floor(result.estimatedX), Math.floor(result.estimatedZ));
         console.log("  Worst-case error (blocks):", result.errorRadius);
         console.log("  Distance to actual event location:", dist);
+        console.log("  Computation time:", performance.now() - start, "ms");
         console.log(result)
         summary.push({
           numBots,
@@ -210,12 +214,16 @@ const minBots = 4;
 const maxBots = minBots;
 
 // World/explosion settings.
-const minWorldRadius = 1_000_000; // Minimum radius from the origin
-const maxWorldRadius = 29_900_000; // Maximum radius (world boundary)
+const minWorldRadius = 10; // Minimum radius from the origin
+const maxWorldRadius = 500_000; // Maximum radius (world boundary)
+
+// Bot placement settings (for methods that use a radius).
+const minBotRadius = 0; // Minimum radius for bot placement
+const maxBotRadius = 200_000; // Maximum radius for bot placement
 
 // Generate a random explosion location.
 const actual = process.argv.length > 2 ? {x: parseInt(process.argv[2]), z: parseInt(process.argv[3])} : generateExplosionLocation(minWorldRadius, maxWorldRadius);
 
 // Example execution: compare results for bot counts from 9 to 12.
-compareConfigurations(minBots, maxBots, actual, triangulateEventByResidual);
 compareConfigurations(minBots, maxBots, actual, triangulateEventLinear);
+compareConfigurations(minBots, maxBots, actual, triangulateEventByResidual, generateCandidateFractions(4));

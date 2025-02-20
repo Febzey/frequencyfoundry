@@ -5,7 +5,7 @@ import { database, discord } from "./index";
 import type { Soundwave } from "./types";
 import "dotenv/config";
 import { time } from "discord.js";
-import { Observation, triangulateEventLinear } from "./cracking/triangulation";
+import { Observation, generateCandidateFractions, triangulateEventByResidual, triangulateEventLinear } from "./cracking/triangulation";
 import { computeRelativeCoords } from "./cracking/build_test_utils";
 
 /**
@@ -52,7 +52,7 @@ export default class Foundry extends EventEmitter {
         this.soundListeners.set(this.listenerUserNames[i].acc, listener);
       })
 
-      await new Promise((r) => setTimeout(r, 5500));
+      await new Promise((r) => setTimeout(r, 500));
     }
   }
 
@@ -69,7 +69,10 @@ export default class Foundry extends EventEmitter {
       });
     });
 
-    const pos = triangulateEventLinear(observations)
+    const offsets = generateCandidateFractions(8)
+    console.log('offsets', offsets)
+    console.log(observations)
+    const pos = triangulateEventByResidual(observations, offsets)
     if (!pos) {
       console.log("No intersection found.");
       return;

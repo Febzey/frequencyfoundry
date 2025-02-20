@@ -216,7 +216,7 @@ export function generateCrossObservations(
   }
 
 
-  /**
+/**
  * Generates observations arranged in a diagonal cross (X-shape) pattern centered at (0,0).
  *
  * The diagonal cross consists of two arms:
