@@ -83,29 +83,25 @@ function distance(p1: Point, p2: Point): number {
   return Math.hypot(p1.x - p2.x, p1.z - p2.z);
 }
 
-/**
- * Triangulate the event location given a set of observations.
- *
- * For each observation, we assume the true computed coordinate (before flooring)
- * lies in the square [relX, relX+1)×[relZ, relZ+1). We use the center (rel+0.5)
- * as the nominal value and then sample the four corners to propagate uncertainty.
- *
- * Returns an estimated event coordinate and a worst-case error radius.
- */
-export function triangulateEvent(observations: Observation[]): { estimatedX: number; estimatedZ: number; errorRadius: number } | null {
-  if (observations.length === 0) return null;
 
-  // Compute nominal rays using the center of each 1×1 uncertainty square.
-  const nominalRays: Ray[] = observations.map((obs) => {
-    const origin = { x: obs.playerX, z: obs.playerZ };
-    const reportedCenter = { x: obs.relX + 0.5, z: obs.relZ + 0.5 };
-    const dirVec = { x: reportedCenter.x - origin.x, z: reportedCenter.z - origin.z };
-    const d = normalize(dirVec);
+/**
+ * Compute the nominal intersection point using the center of each uncertainty square.
+ */
+function computeNominalIntersection(observations: Observation[]): Point {
+  const rays: Ray[] = observations.map(obs => {
+    const origin: Point = { x: obs.playerX, z: obs.playerZ };
+    const center: Point = { x: obs.relX + 0.5, z: obs.relZ + 0.5 };
+    const d = normalize({ x: center.x - origin.x, z: center.z - origin.z });
     return { origin, d };
   });
-  const nominalE = computeLeastSquaresIntersection(nominalRays);
+  return computeLeastSquaresIntersection(rays);
+}
 
-  // Now sample the extremes by considering each observation’s 4 corners.
+/**
+ * Computes the error radius for a set of observations.
+ */
+function comprehensiveErrorRadius(observations: Observation[], nominalE: Point): number {
+// Now sample the extremes by considering each observation’s 4 corners.
   // For n observations there are 4ⁿ combinations.
   const extremePoints: Point[] = [];
   const n = observations.length;
@@ -141,15 +137,104 @@ export function triangulateEvent(observations: Observation[]): { estimatedX: num
     const E = computeLeastSquaresIntersection(rays);
     extremePoints.push(E);
   }
+    // The worst-case error radius is the maximum distance from nominalE to any extreme solution.
+    let errorRadius = 0;
+    for (const E of extremePoints) {
+      const d = distance(nominalE, E);
+      if (d > errorRadius) errorRadius = d;
+    }
+    return errorRadius;
+}
 
-  // The worst-case error radius is the maximum distance from nominalE to any extreme solution.
-  let errorRadius = 0;
-  for (const E of extremePoints) {
-    const d = distance(nominalE, E);
-    if (d > errorRadius) errorRadius = d;
+
+/**
+ * Given an observation, returns two candidate offsets:
+ *   - default: (0,0) which corresponds to Q = (relX, relZ)
+ *   - extreme: the candidate (from the four corners) that has the largest angular difference
+ *     from the default.
+ */
+function getCandidateOffsetsForObservation(obs: Observation): { min: { dx: number; dz: number }, max: { dx: number; dz: number } } {
+  const defaultOffset = { dx: 0, dz: 0 };
+  const P = { x: obs.playerX, z: obs.playerZ };
+
+  // The four candidate offsets:
+  const candidates = [
+    { dx: 0, dz: 0 }, // no need to check this.
+    { dx: 1, dz: 0 },
+    { dx: 0, dz: 1 },
+    { dx: 1, dz: 1 }
+  ];
+
+  // Function to compute the angle (in radians) from sensor P to Q.
+  function angleForOffset(offset: { dx: number; dz: number }): number {
+    const Q = { x: obs.relX + offset.dx, z: obs.relZ + offset.dz };
+    return Math.atan2(Q.z - P.z, Q.x - P.x);
   }
 
-  return { estimatedX: nominalE.x, estimatedZ: nominalE.z, errorRadius };
+  const defaultAngle = angleForOffset(defaultOffset);
+  let maxDiff = -1;
+  let extremeCandidate = defaultOffset;
+  for (const cand of candidates) {
+    const a = angleForOffset(cand);
+    // Compute absolute angular difference, normalized to [0, π]
+    let diff = a - defaultAngle;
+    diff = Math.abs(((diff + Math.PI) % (2 * Math.PI)) - Math.PI);
+    if (diff > maxDiff) {
+      maxDiff = diff;
+      extremeCandidate = cand;
+    }
+  }
+  return { min: defaultOffset, max: extremeCandidate };
+}
+
+/**
+ * Optimized error radius computation.
+ * Instead of enumerating all 4^n combinations, for each observation we only consider two candidates:
+ * the default (nominal) and the one with the largest angular deviation.
+ * We then enumerate over the 2^n combinations, compute the corresponding intersection for each, and
+ * define errorRadius as the maximum Euclidean distance from the nominal intersection (using default
+ * for every observation) to any candidate intersection.
+ */
+function optimizedComprehensiveErrorRadius(observations: Observation[], nominalE: Point): number {
+  const n = observations.length;
+  // Compute the nominal intersection using default offsets.
+  let maxError = 0;
+
+  // Enumerate over 2^n combinations:
+  function rec(i: number, offsets: { dx: number; dz: number }[]) {
+    if (i === n) {
+      const E = computeIntersectionForOffsets(observations, offsets);
+      const d = distance(nominalE, E);
+      if (d > maxError) maxError = d;
+      return;
+    }
+    const candidates = getCandidateOffsetsForObservation(observations[i]);
+    // Choose default candidate:
+    rec(i + 1, offsets.concat(candidates.min));
+    // Choose extreme candidate:
+    rec(i + 1, offsets.concat(candidates.max));
+  }
+  rec(0, []);
+  return maxError;
+}
+
+/**
+ * Triangulate the event location given a set of observations.
+ *
+ * For each observation, we assume the true computed coordinate (before flooring)
+ * lies in the square [relX, relX+1)×[relZ, relZ+1). We use the center (rel+0.5)
+ * as the nominal value and then sample the four corners to propagate uncertainty.
+ *
+ * Returns an estimated event coordinate and a worst-case error radius.
+ */
+export function triangulateEvent(observations: Observation[]): { estimatedX: number; estimatedZ: number; errorRadius: number } | null {
+  if (observations.length === 0) return null;
+
+  const nominalE1 = computeNominalIntersection(observations);
+  const errorRadius = comprehensiveErrorRadius(observations, nominalE1);
+  // const errorRadius = optimizedComprehensiveErrorRadius(observations, nominalE1);
+
+  return { estimatedX: nominalE1.x, estimatedZ: nominalE1.z, errorRadius };
 }
 
 
@@ -260,18 +345,6 @@ export function triangulateEvent1(observations: Observation[]): { estimatedX: nu
 }
 
 
-/**
- * Compute the nominal intersection point using the center of each uncertainty square.
- */
-function computeNominalIntersection(observations: Observation[]): Point {
-  const rays: Ray[] = observations.map(obs => {
-    const origin: Point = { x: obs.playerX, z: obs.playerZ };
-    const center: Point = { x: obs.relX + 0.5, z: obs.relZ + 0.5 };
-    const d = normalize({ x: center.x - origin.x, z: center.z - origin.z });
-    return { origin, d };
-  });
-  return computeLeastSquaresIntersection(rays);
-}
 
 /**
  * Given a set of observations and a set of offsets (one per observation),
@@ -290,6 +363,27 @@ function computeIntersectionForSample(
   });
   return computeLeastSquaresIntersection(rays);
 }
+
+/**
+ * Computes the intersection point for a given set of offsets.
+ * For each observation, the true computed coordinate is assumed to be
+ * (obs.relX + offset.dx, obs.relZ + offset.dz), where offset.dx and offset.dz are either 0 or 1.
+ */
+function computeIntersectionForOffsets(
+  observations: Observation[],
+  offsets: { dx: number; dz: number }[]
+): Point {
+  const rays: Ray[] = observations.map((obs, i) => {
+    const origin: Point = { x: obs.playerX, z: obs.playerZ };
+    // Use the provided offset for each observation.
+    const samplePoint = { x: obs.relX + offsets[i].dx, z: obs.relZ + offsets[i].dz };
+    const d = normalize({ x: samplePoint.x - origin.x, z: samplePoint.z - origin.z });
+    return { origin, d };
+  });
+  return computeLeastSquaresIntersection(rays);
+}
+
+
 
 /**
  * Approximates the worst-case error using Monte Carlo sampling.
@@ -337,9 +431,8 @@ export function triangulateEvent2(observations: Observation[], monteCarloSamples
  *
  * Returns an estimated worst-case error radius in blocks.
  */
-function linearWorstCaseError(observations: Observation[]): number {
+function linearWorstCaseError(observations: Observation[], nominalE: Point): number {
   const delta = 1e-3; // small perturbation for finite differences
-  const nominal = computeNominalIntersection(observations);
 
   // These accumulators represent the worst-case contributions to the estimated event coordinate
   let totalErrorX = 0;
@@ -352,15 +445,15 @@ function linearWorstCaseError(observations: Observation[]): number {
     obsPerturbX[i].relX += delta;
     const perturbedX = computeNominalIntersection(obsPerturbX);
 
-    const dEx_dRelX = (perturbedX.x - nominal.x) / delta;
-    const dEz_dRelX = (perturbedX.z - nominal.z) / delta;
+    const dEx_dRelX = (perturbedX.x - nominalE.x) / delta;
+    const dEz_dRelX = (perturbedX.z - nominalE.z) / delta;
 
     const obsPerturbZ = observations.map(o => ({ ...o }));
     obsPerturbZ[i].relZ += delta;
     const perturbedZ = computeNominalIntersection(obsPerturbZ);
 
-    const dEx_dRelZ = (perturbedZ.x - nominal.x) / delta;
-    const dEz_dRelZ = (perturbedZ.z - nominal.z) / delta;
+    const dEx_dRelZ = (perturbedZ.x - nominalE.x) / delta;
+    const dEz_dRelZ = (perturbedZ.z - nominalE.z) / delta;
 
     // For worst-case, assume each observation's relX and relZ can be off by up to 0.5 (in absolute value).
     // Their contributions to the error in x and z are then:
@@ -386,30 +479,9 @@ function linearWorstCaseError(observations: Observation[]): number {
 export function triangulateEventLinear(observations: Observation[]): { estimatedX: number; estimatedZ: number; errorRadius: number } | null {
   if (observations.length === 0) return null;
   const nominal = computeNominalIntersection(observations);
-  const errorRadius = linearWorstCaseError(observations);
+  const errorRadius = linearWorstCaseError(observations, nominal);
   return { estimatedX: nominal.x, estimatedZ: nominal.z, errorRadius };
 }
-
-
-/**
- * Computes the intersection point for a given set of offsets.
- * For each observation, the true computed coordinate is assumed to be
- * (obs.relX + offset.dx, obs.relZ + offset.dz), where offset.dx and offset.dz are either 0 or 1.
- */
-function computeIntersectionForOffsets(
-  observations: Observation[],
-  offsets: { dx: number; dz: number }[]
-): Point {
-  const rays: Ray[] = observations.map((obs, i) => {
-    const origin: Point = { x: obs.playerX, z: obs.playerZ };
-    // Use the provided offset for each observation.
-    const samplePoint = { x: obs.relX + offsets[i].dx, z: obs.relZ + offsets[i].dz };
-    const d = normalize({ x: samplePoint.x - origin.x, z: samplePoint.z - origin.z });
-    return { origin, d };
-  });
-  return computeLeastSquaresIntersection(rays);
-}
-
 
 
 
@@ -733,5 +805,192 @@ export function triangulateEventByResidual(
     estimatedZ: bestE.z,
     errorRadius: maxDistance,
     offsets: searchResult.bestOffsets
+  };
+}
+
+
+/**
+ * Uses simulated annealing to optimize the fractional offsets.
+ * The state is an array of offsets (one dx and one dz per observation).
+ * Returns the best offsets found, their cost, and the corresponding intersection.
+ */
+function optimizeOffsetsSA(
+  observations: Observation[],
+  initialTemp: number = 1,
+  finalTemp: number = 1e-6,
+  iterations: number = 10000,
+  epsilon: number = 1e-8
+): { bestOffsets: { dx: number; dz: number }[]; bestCost: number; bestE: Point } {
+  const n = observations.length;
+  let currentOffsets: { dx: number; dz: number }[] = Array(n).fill(0).map(() => ({ dx: 0.5, dz: 0.5 }));
+  let currentCost = computeResidualCost(observations, currentOffsets);
+  let currentE = computeIntersectionForOffsets(observations, currentOffsets);
+  let bestOffsets = currentOffsets.map(o => ({ ...o }));
+  let bestCost = currentCost;
+  let bestE = currentE;
+  let temp = initialTemp;
+  // Exponential cooling schedule.
+  const coolingRate = Math.pow(finalTemp / initialTemp, 1 / iterations);
+  
+  for (let iter = 0; iter < iterations; iter++) {
+    // Propose new offsets by perturbing each observation's offsets by a small random value scaled by temp.
+    const newOffsets = currentOffsets.map(o => {
+      let newDx = o.dx + (Math.random() * 2 - 1) * temp;
+      let newDz = o.dz + (Math.random() * 2 - 1) * temp;
+      // Clamp values to [0,1]
+      newDx = Math.max(0, Math.min(1, newDx));
+      newDz = Math.max(0, Math.min(1, newDz));
+
+      // round by epsilon
+      newDx = Math.round(newDx / epsilon) * epsilon;
+      newDz = Math.round(newDz / epsilon) * epsilon;
+      return { dx: newDx, dz: newDz };
+    });
+    const newCost = computeResidualCost(observations, newOffsets);
+    // If the new state is better, accept it; if not, accept it with a probability that decreases with temperature.
+    if (newCost < currentCost || Math.random() < Math.exp((currentCost - newCost) / temp)) {
+      currentOffsets = newOffsets;
+      currentCost = newCost;
+      currentE = computeIntersectionForOffsets(observations, newOffsets);
+      if (newCost < bestCost) {
+        bestCost = newCost;
+        bestOffsets = newOffsets.map(o => ({ ...o }));
+        bestE = currentE;
+      }
+    }
+    temp *= coolingRate;
+  }
+  return { bestOffsets, bestCost, bestE };
+}
+
+/**
+ * New triangulation function that uses simulated annealing to optimize the fractional offsets.
+ * It returns the refined event coordinate, an error boundary called errorRadius, and the optimized offsets.
+ */
+export function triangulateEventOptimizedSA(
+  observations: Observation[],
+  initialTemp: number = 1,
+  finalTemp: number = 1e-12,
+  iterations: number = 100000,
+  epsilon: number = 1e-99
+): { estimatedX: number; estimatedZ: number; errorRadius: number; offsets: { dx: number; dz: number }[] } | null {
+  if (observations.length === 0) return null;
+  const nominalE = computeNominalIntersection(observations);
+  const optResult = optimizeOffsetsSA(observations, initialTemp, finalTemp, iterations, epsilon);
+  // const errorRadius = computeErrorRadiusSA(observations, optResult.bestOffsets, optResult.bestE, errorSamples, perturbation);
+  const errorRadius = optimizedComprehensiveErrorRadius(observations, nominalE) //comprehensiveErrorRadius(observations, nominalE);
+  // const errorRadius = linearWorstCaseError(observations, nominalE);
+  return {
+    estimatedX: optResult.bestE.x,
+    estimatedZ: optResult.bestE.z,
+    errorRadius,
+    offsets: optResult.bestOffsets,
+  };
+}
+
+
+/**
+ * Computes the projection matrix for a given unit vector d:  I - d d^T.
+ */
+function projectionMatrix(d: Point): number[][] {
+  return [
+    [1 - d.x * d.x,     -d.x * d.z],
+    [   -d.x * d.z, 1 - d.z * d.z]
+  ];
+}
+
+/**
+ * Computes the covariance matrix for the estimated event coordinate E
+ * using covariance propagation from the observation uncertainties.
+ *
+ * We assume each observation has independent error with variance sigma^2
+ * in the direction orthogonal to its ray. Then, the covariance is approximated as:
+ *
+ *   Cov(E) ≈ sigma^2 * ( Σ_i (I - d_i d_i^T) )^(-1)
+ *
+ * @param observations - The observations array.
+ * @param sigma - The standard deviation of the error in each observation's measurement.
+ * @returns A 2x2 covariance matrix.
+ */
+function computeCovariance(observations: Observation[], sigma: number): number[][] {
+  const rays: Ray[] = observations.map(obs => {
+    const origin: Point = { x: obs.playerX, z: obs.playerZ };
+    const Q: Point = { x: obs.relX + 0.5, z: obs.relZ + 0.5 };
+    const d = normalize({ x: Q.x - origin.x, z: Q.z - origin.z });
+    return { origin, d };
+  });
+  // Sum the projection matrices.
+  let S = [
+    [0, 0],
+    [0, 0]
+  ];
+  for (const ray of rays) {
+    const P = projectionMatrix(ray.d);
+    S[0][0] += P[0][0];
+    S[0][1] += P[0][1];
+    S[1][0] += P[1][0];
+    S[1][1] += P[1][1];
+  }
+  // Invert the 2x2 matrix S.
+  const det = S[0][0] * S[1][1] - S[0][1] * S[1][0];
+  if (Math.abs(det) < 1e-8) {
+    // Degenerate case; return a large covariance.
+    return [
+      [1e10, 0],
+      [0, 1e10]
+    ];
+  }
+  const invS = [
+    [S[1][1] / det, -S[0][1] / det],
+    [-S[1][0] / det, S[0][0] / det]
+  ];
+  // Multiply by sigma^2.
+  invS[0][0] *= sigma * sigma;
+  invS[0][1] *= sigma * sigma;
+  invS[1][0] *= sigma * sigma;
+  invS[1][1] *= sigma * sigma;
+  return invS;
+}
+
+/**
+ * Computes the maximum eigenvalue of a 2x2 matrix.
+ * For matrix M = [a, b; c, d], eigenvalues are given by:
+ *   λ = (a+d ± sqrt((a-d)^2 + 4*b*c)) / 2.
+ */
+function maxEigenvalue(M: number[][]): number {
+  const a = M[0][0], b = M[0][1], c = M[1][0], d = M[1][1];
+  const trace = a + d;
+  const discriminant = Math.sqrt((a - d) * (a - d) + 4 * b * c);
+  const lambda1 = (trace + discriminant) / 2;
+  const lambda2 = (trace - discriminant) / 2;
+  return Math.max(lambda1, lambda2);
+}
+
+/**
+ * New triangulation function that uses covariance propagation.
+ * It computes the nominal intersection using (0.5, 0.5) for each observation,
+ * then computes the covariance matrix of the intersection, and returns an errorRadius
+ * equal to the square root of the maximum eigenvalue of the covariance matrix.
+ *
+ * @param observations - The array of observations.
+ * @param sigma - The standard deviation of the measurement error.
+ * @returns An object containing estimatedX, estimatedZ, errorRadius, and the nominal offsets.
+ */
+export function triangulateEventCovariance(
+  observations: Observation[],
+  sigma: number = 1  // you may adjust sigma based on your expected error in Q.
+): { estimatedX: number; estimatedZ: number; errorRadius: number; offsets: { dx: number; dz: number }[] } | null {
+  if (observations.length === 0) return null;
+  const nominal = computeNominalIntersection(observations);
+  const cov = computeCovariance(observations, sigma);
+  const maxEig = maxEigenvalue(cov);
+  const errorRadius = Math.sqrt(maxEig);
+  // Nominal offsets are (0.5, 0.5) for every observation.
+  const offsets = observations.map(() => ({ dx: 0.5, dz: 0.5 }));
+  return {
+    estimatedX: nominal.x,
+    estimatedZ: nominal.z,
+    errorRadius,
+    offsets
   };
 }

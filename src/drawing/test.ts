@@ -1,5 +1,10 @@
 import { createCanvas } from "canvas";
 import * as fs from "fs";
+import { drawErrorRegionPolygon } from "./drawPolygon";
+import { Point, buildErrorRegion } from "./polygonUtils";
+import { generateExplosionLocation } from "../cracking/build_test_utils";
+import { generateGridObservationsForN } from "../cracking/generators";
+import { triangulateEventLinear } from "../cracking/triangulation";
 
 
 /**
@@ -357,6 +362,26 @@ export function generateGraph(
 
   }
 
+  const polygon: Point[] = buildErrorRegion(inputs)
+  // Draw polygon.
+  ctx.beginPath();
+  const first = toCanvasCoords(polygon[0].x, polygon[0].z, bbox, canvasWidth, canvasHeight, padding);
+  ctx.moveTo(first.x, first.y);
+  for (let i = 1; i < polygon.length; i++) {
+    const pt = toCanvasCoords(polygon[i].x, polygon[i].z, bbox, canvasWidth, canvasHeight, padding);
+    ctx.lineTo(pt.x, pt.y);
+  }
+  ctx.closePath();
+
+  // Fill the polygon with a semi-transparent red.
+  ctx.fillStyle = "rgba(255, 0, 0, 0.3)";
+  ctx.fill();
+
+  // Outline the polygon in red.
+  ctx.strokeStyle = "red";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
   // 9) Save the image
   const buffer = canvas.toBuffer("image/png");
   fs.writeFileSync(outputFile, buffer);
@@ -364,28 +389,31 @@ export function generateGraph(
 }
 
 
-const actual = { x: 1010216, z: 1333096 }
+const minRadius = 1000
+const maxRadius = 10000
+const maxBotRadius = 5000
+const viewDistance = 160
+
+const actual = generateExplosionLocation(minRadius, maxRadius)
 
 //
 // 1) Your Data
 //
-const inputs: RayInput[] = [
-  { playerX: -250000, playerZ: -250000, relX: -249900, relZ: -249874 },
-  { playerX: 250000, playerZ: -250000, relX: 250069, relZ: -249855 },
-  { playerX: -250000, playerZ: 250000, relX: -249878, relZ: 250104 },
-  { playerX: 250000, playerZ: 250000, relX: 250091, relZ: 250130 }
-];
+const inputs: RayInput[] = generateGridObservationsForN(4, maxBotRadius, actual.x, actual.z, viewDistance);
 
+const out = triangulateEventLinear(inputs)
+if (out == null) {
+  console.log("Triangulation failed.");
+  process.exit(1)
+}
+
+const offsets = []
+for (let i = 0; i < inputs.length; i++) {
+  offsets.push({ dx: 0.5, dz: 0.5 });
+}
 const found = {
-  estimatedX: 992175.0516387215,
-  estimatedZ: 1309655.7008427246,
-  errorRadius: 45287.86589650117,
-  offsets: [
-    { dx: 0.75, dz: 0.5 },
-    { dx: 0, dz: 0 },
-    { dx: 0.5, dz: 0.5 },
-    { dx: 0.75, dz: 1 }
-  ],
+  ...out,
+  offsets: offsets,
   actualX: actual.x,
   actualZ: actual.z
 }

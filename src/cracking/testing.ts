@@ -1,5 +1,5 @@
-import { triangulateEvent, Observation, triangulateEvent1, triangulateEvent2, triangulateEventLinear, Point, triangulateEventByResidual, generateCandidateFractions } from "./triangulation";
-import { computeRelativeCoords } from "./build_test_utils";
+import { triangulateEvent, Observation, triangulateEvent1, triangulateEvent2, triangulateEventLinear, Point, triangulateEventByResidual, generateCandidateFractions, triangulateEventOptimizedSA, triangulateEventCovariance } from "./triangulation";
+import { computeRelativeCoords, generateExplosionLocation } from "./build_test_utils";
 import { Vec3 } from "vec3";
 import {  generateCircularObservations, generateCrossObservations, generateDiagonalCrossObservations, generateGridObservationsForN, generateObservations } from "./generators";
 import { generateGraph } from "../drawing/test";
@@ -15,26 +15,7 @@ interface SummaryRecord {
   distance: number;
 }
 
-/**
- * Generates a random explosion location within a specified radius range.
- *
- * @param minRadius - The minimum radius from the origin.
- * @param maxRadius - The maximum radius (world boundary).
- * @returns The actual explosion coordinates as an object { x, z }.
- */
-function generateExplosionLocation(minRadius: number, maxRadius: number): { x: number; z: number } {
-  // Generate a random angle in radians (0 to 2π)
-  const theta = Math.random() * 2 * Math.PI;
 
-  // Generate a random radius between minRadius and maxRadius
-  const r = Math.sqrt(Math.random() * (maxRadius ** 2 - minRadius ** 2) + minRadius ** 2);
-
-  // Convert polar to Cartesian coordinates
-  const explosionX = Math.floor(r * Math.cos(theta));
-  const explosionZ = Math.floor(r * Math.sin(theta));
-
-  return { x: explosionX, z: explosionZ };
-}
 
 
 /**
@@ -75,40 +56,40 @@ function compareConfigurations(minBots: number, maxBots: number, actual: {x: num
       
     // }},
     
-    {
-      name: "Random Observations",
-      func: (num: number) =>
-        generateObservations(
-          num,
-          actual.x,
-          actual.z,
-          minBotRadius,
-          maxBotRadius,
-          viewDistance
-        ),
-    },
     // {
-    //   name: "Circular Observations",
+    //   name: "Random Observations",
     //   func: (num: number) =>
-    //     generateCircularObservations(
+    //     generateObservations(
     //       num,
     //       actual.x,
     //       actual.z,
+    //       minBotRadius,
     //       maxBotRadius,
     //       viewDistance
     //     ),
     // },
-    // {
-    //   name: "Grid Observations",
-    //   func: (num: number) =>
-    //     generateGridObservationsForN(
-    //       num,
-    //       maxBotRadius * 2,
-    //       actual.x,
-    //       actual.z,
-    //       viewDistance
-    //     ),
-    // },
+    {
+      name: "Circular Observations",
+      func: (num: number) =>
+        generateCircularObservations(
+          num,
+          actual.x,
+          actual.z,
+          maxBotRadius,
+          viewDistance
+        ),
+    },
+    {
+      name: "Grid Observations",
+      func: (num: number) =>
+        generateGridObservationsForN(
+          num,
+          maxBotRadius * 2,
+          actual.x,
+          actual.z,
+          viewDistance
+        ),
+    },
     // {
     //   name: "Cross Observations",
     //   func: (num: number) =>
@@ -148,17 +129,16 @@ function compareConfigurations(minBots: number, maxBots: number, actual: {x: num
       if (result) {
         const dist = Math.hypot(result.estimatedX - actual.x, result.estimatedZ - actual.z);
         console.log(` === ${gen.name} ===`)
-        console.log(observations)
+        // console.log(observations)
         console.log("  Estimated event coordinate:", Math.floor(result.estimatedX), Math.floor(result.estimatedZ));
         console.log("  Worst-case error (blocks):", result.errorRadius);
         console.log("  Distance to actual event location:", dist);
         console.log("  Computation time:", performance.now() - start, "ms");
-        console.log(result)
-
+      
         let offsets: {dx: number, dz: number}[] = []
         if (result.offsets != null) offsets = result.offsets
         else {
-          for (let i = 0; i < numBots; i++) {
+          for (let i = 0; i < observations.length; i++) {
             offsets.push({dx: 0.5, dz: 0.5})
           }
         }
@@ -203,7 +183,7 @@ function compareConfigurations(minBots: number, maxBots: number, actual: {x: num
   // Now, determine the overall best configuration (lowest distance) across all bot counts.
   summary.sort(sortWorstCase);
   const overallBest = summary[0];
-  console.log("\n--- Overall Best Configuration ---");
+  console.log(`\n--- Overall Best Configuration For: ${method.name} ---`);
   console.log(
     overallBest.numBots, "bots with", overallBest.name, "\n  Estimated:", 
     Math.floor(overallBest.estimatedX), Math.floor(overallBest.estimatedZ), 
@@ -228,19 +208,22 @@ function compareConfigurations(minBots: number, maxBots: number, actual: {x: num
 }
 
 const minBots = 4;
-const maxBots = minBots;
+const maxBots = 4;
 
 // World/explosion settings.
 const minWorldRadius = 10; // Minimum radius from the origin
-const maxWorldRadius = 5_000_000; // Maximum radius (world boundary)
+const maxWorldRadius = 500_000; // Maximum radius (world boundary)
 
 // Bot placement settings (for methods that use a radius).
 const minBotRadius = 0; // Minimum radius for bot placement
-const maxBotRadius = 2_000_000; // Maximum radius for bot placement
+const maxBotRadius = 200_000 ; // Maximum radius for bot placement
 
 // Generate a random explosion location.
 const actual = process.argv.length > 2 ? {x: parseInt(process.argv[2]), z: parseInt(process.argv[3])} : generateExplosionLocation(minWorldRadius, maxWorldRadius);
 
 // Example execution: compare results for bot counts from 9 to 12.
 compareConfigurations(minBots, maxBots, actual, triangulateEventLinear);
-compareConfigurations(minBots, maxBots, actual, triangulateEventByResidual, generateCandidateFractions(4));
+// compareConfigurations(minBots, maxBots, actual, triangulateEventByResidual, generateCandidateFractions(4));
+compareConfigurations(minBots, maxBots, actual, triangulateEventOptimizedSA);
+
+// compareConfigurations(minBots, maxBots, actual, triangulateEventCovariance);
