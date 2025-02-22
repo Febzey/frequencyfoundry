@@ -1,4 +1,4 @@
-import { generateGraph } from "../drawing/test";
+import { generateGraph } from "../drawing/draw";
 import { generateExplosionLocation } from "./build_test_utils";
 import { generateGridObservationsForN } from "./generators";
 import { triangulateEventLinear } from "./triangulation";

@@ -1,8 +1,8 @@
-import { triangulateEvent, Observation, triangulateEvent1, triangulateEvent2, triangulateEventLinear, Point, triangulateEventByResidual, generateCandidateFractions, triangulateEventOptimizedSA, triangulateEventCovariance } from "./triangulation";
+import { triangulateEvent, Observation, triangulateEventLinear, Point, triangulateEventByResidual, generateCandidateFractions, triangulateEventOptimizedSA } from "./triangulation";
 import { computeRelativeCoords, generateExplosionLocation } from "./build_test_utils";
 import { Vec3 } from "vec3";
 import {  generateCircularObservations, generateCrossObservations, generateDiagonalCrossObservations, generateGridObservationsForN, generateObservations } from "./generators";
-import { generateGraph } from "../drawing/test";
+import { generateGraph } from "../drawing/draw";
 
 interface SummaryRecord {
   observations: Observation[];
@@ -192,7 +192,7 @@ function compareConfigurations(minBots: number, maxBots: number, actual: {x: num
   );
 
   const obj = {...overallBest, actualX: actual.x, actualZ: actual.z}
-  generateGraph(overallBest.observations, obj, `${method.name}.png`)
+  generateGraph(overallBest.observations, obj, `${method.name}.png`, {drawErrorRegion: true, scale: 1.1})
 
   summary.sort(sortDistance);
   const overallBestDistance = summary[0];
@@ -207,21 +207,22 @@ function compareConfigurations(minBots: number, maxBots: number, actual: {x: num
 
 }
 
-const minBots = 4;
-const maxBots = 4;
+const minBots = 8;
+const maxBots = 8;
 
 // World/explosion settings.
 const minWorldRadius = 10; // Minimum radius from the origin
-const maxWorldRadius = 500_000; // Maximum radius (world boundary)
+const maxWorldRadius = 29_000_000; // Maximum radius (world boundary)
 
 // Bot placement settings (for methods that use a radius).
 const minBotRadius = 0; // Minimum radius for bot placement
-const maxBotRadius = 200_000 ; // Maximum radius for bot placement
+const maxBotRadius = 29_000_000 ; // Maximum radius for bot placement
 
 // Generate a random explosion location.
 const actual = process.argv.length > 2 ? {x: parseInt(process.argv[2]), z: parseInt(process.argv[3])} : generateExplosionLocation(minWorldRadius, maxWorldRadius);
 
 // Example execution: compare results for bot counts from 9 to 12.
+// compareConfigurations(minBots, maxBots, actual, triangulateEvent);
 compareConfigurations(minBots, maxBots, actual, triangulateEventLinear);
 // compareConfigurations(minBots, maxBots, actual, triangulateEventByResidual, generateCandidateFractions(4));
 compareConfigurations(minBots, maxBots, actual, triangulateEventOptimizedSA);

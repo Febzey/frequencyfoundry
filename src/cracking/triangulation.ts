@@ -149,42 +149,51 @@ function comprehensiveErrorRadius(observations: Observation[], nominalE: Point):
 
 /**
  * Given an observation, returns two candidate offsets:
- *   - default: (0,0) which corresponds to Q = (relX, relZ)
- *   - extreme: the candidate (from the four corners) that has the largest angular difference
- *     from the default.
+ *   - min: The offset that forms the lowest angle.
+ *   - max: The offset that forms the highest angle, maximizing the angular spread.
  */
-function getCandidateOffsetsForObservation(obs: Observation): { min: { dx: number; dz: number }, max: { dx: number; dz: number } } {
-  const defaultOffset = { dx: 0, dz: 0 };
-  const P = { x: obs.playerX, z: obs.playerZ };
+export function getCandidateOffsetsForObservation(
+  obs: { playerX: number; playerZ: number; relX: number; relZ: number },
+  resolution: number = 0.01
+): { min: { dx: number; dz: number }; max: { dx: number; dz: number } } {
+  const { playerX, playerZ, relX, relZ } = obs;
+  let bestPair = { min: { dx: 0, dz: 0 }, max: { dx: 0, dz: 0 } };
+  let maxSpread = 0;
 
-  // The four candidate offsets:
-  const candidates = [
-    { dx: 0, dz: 0 }, // no need to check this.
-    { dx: 1, dz: 0 },
-    { dx: 0, dz: 1 },
-    { dx: 1, dz: 1 }
-  ];
+  // Store angles for all candidates
+  const candidates: { dx: number; dz: number; angle: number }[] = [];
 
-  // Function to compute the angle (in radians) from sensor P to Q.
-  function angleForOffset(offset: { dx: number; dz: number }): number {
-    const Q = { x: obs.relX + offset.dx, z: obs.relZ + offset.dz };
-    return Math.atan2(Q.z - P.z, Q.x - P.x);
-  }
-
-  const defaultAngle = angleForOffset(defaultOffset);
-  let maxDiff = -1;
-  let extremeCandidate = defaultOffset;
-  for (const cand of candidates) {
-    const a = angleForOffset(cand);
-    // Compute absolute angular difference, normalized to [0, π]
-    let diff = a - defaultAngle;
-    diff = Math.abs(((diff + Math.PI) % (2 * Math.PI)) - Math.PI);
-    if (diff > maxDiff) {
-      maxDiff = diff;
-      extremeCandidate = cand;
+  // Compute angles for all points in [0,1] x [0,1]
+  for (let i = 0; i <= 1 / resolution; i++) {
+    const dx = i * resolution;
+    for (let j = 0; j <= 1 / resolution; j++) {
+      const dz = j * resolution;
+      const angle = Math.atan2(relZ + dz - playerZ, relX + dx - playerX);
+      candidates.push({ dx, dz, angle });
     }
   }
-  return { min: defaultOffset, max: extremeCandidate };
+
+  // Find the pair that maximizes angular difference
+  let minCandidate = candidates[0];
+  let maxCandidate = candidates[0];
+
+  for (const cand of candidates) {
+    if (cand.angle < minCandidate.angle) {
+      minCandidate = cand;
+    }
+    if (cand.angle > maxCandidate.angle) {
+      maxCandidate = cand;
+    }
+  }
+
+  maxSpread = Math.abs(maxCandidate.angle - minCandidate.angle);
+
+  bestPair = {
+    min: { dx: minCandidate.dx, dz: minCandidate.dz },
+    max: { dx: maxCandidate.dx, dz: maxCandidate.dz },
+  };
+
+  return bestPair;
 }
 
 /**
@@ -209,9 +218,9 @@ function optimizedComprehensiveErrorRadius(observations: Observation[], nominalE
       return;
     }
     const candidates = getCandidateOffsetsForObservation(observations[i]);
-    // Choose default candidate:
+    // Choose min extreme candidate:
     rec(i + 1, offsets.concat(candidates.min));
-    // Choose extreme candidate:
+    // Choose max extreme candidate:
     rec(i + 1, offsets.concat(candidates.max));
   }
   rec(0, []);
@@ -239,130 +248,6 @@ export function triangulateEvent(observations: Observation[]): { estimatedX: num
 
 
 
-/**
- * Computes the intersection of two lines given in point-angle form.
- * Each line is defined as: P + t*(cos(theta), sin(theta)).
- * Returns null if the lines are nearly parallel.
- */
-function intersectLines(P1: Point, theta1: number, P2: Point, theta2: number): Point | null {
-  const d1 = { x: Math.cos(theta1), z: Math.sin(theta1) };
-  const d2 = { x: Math.cos(theta2), z: Math.sin(theta2) };
-  const denom = d1.x * d2.z - d1.z * d2.x;
-  if (Math.abs(denom) < 1e-8) return null;
-  const diff = { x: P2.x - P1.x, z: P2.z - P1.z };
-  const t = (diff.x * d2.z - diff.z * d2.x) / denom;
-  return { x: P1.x + t * d1.x, z: P1.z + t * d1.z };
-}
-
-
-
-/**
- * Triangulate the event location given a set of observations.
- *
- * For each observation, we assume the true computed coordinate (before flooring)
- * lies in the square [relX, relX+1)×[relZ, relZ+1). We use the center (rel+0.5)
- * as the nominal value.
- *
- * To estimate the worst-case error without enumerating all 4^n combinations, we:
- * 1. Compute two extreme angles (thetaMin and thetaMax) for each observation based
- *    on the four corners of its uncertainty square.
- * 2. Create an extreme ray for each of these angles.
- * 3. Compute pairwise intersections between extreme rays from different observations.
- * 4. Use the maximum distance between the nominal intersection and any of these
- *    intersections as the worst-case error.
- */
-export function triangulateEvent1(observations: Observation[]): { estimatedX: number; estimatedZ: number; errorRadius: number } | null {
-  if (observations.length === 0) return null;
-
-  // Compute nominal rays using the center of each uncertainty square.
-  const nominalRays: Ray[] = observations.map(obs => {
-    const origin: Point = { x: obs.playerX, z: obs.playerZ };
-    const center: Point = { x: obs.relX + 0.5, z: obs.relZ + 0.5 };
-    const d = normalize({ x: center.x - origin.x, z: center.z - origin.z });
-    return { origin, d };
-  });
-  const nominalE = computeLeastSquaresIntersection(nominalRays);
-
-  // For each observation, compute the minimum and maximum possible angles.
-  interface ExtendedObservation {
-    origin: Point;
-    thetaMin: number;
-    thetaMax: number;
-  }
-  const extendedObs: ExtendedObservation[] = observations.map(obs => {
-    const origin: Point = { x: obs.playerX, z: obs.playerZ };
-    // Four corners of the uncertainty square.
-    const corners: Point[] = [
-      { x: obs.relX,     z: obs.relZ },
-      { x: obs.relX + 1, z: obs.relZ },
-      { x: obs.relX,     z: obs.relZ + 1 },
-      { x: obs.relX + 1, z: obs.relZ + 1 }
-    ];
-    // Compute the angle for each corner relative to the origin.
-    const angles = corners.map(corner => Math.atan2(corner.z - origin.z, corner.x - origin.x));
-    // For simplicity, assume angles don't wrap around 2π.
-    const thetaMin = Math.min(...angles);
-    const thetaMax = Math.max(...angles);
-    return { origin, thetaMin, thetaMax };
-  });
-
-  // Create extreme rays: one for thetaMin and one for thetaMax per observation.
-  interface ExtremeRay {
-    origin: Point;
-    theta: number;
-    obsIndex: number;
-  }
-  const extremeRays: ExtremeRay[] = [];
-  for (let i = 0; i < extendedObs.length; i++) {
-    extremeRays.push({ origin: extendedObs[i].origin, theta: extendedObs[i].thetaMin, obsIndex: i });
-    extremeRays.push({ origin: extendedObs[i].origin, theta: extendedObs[i].thetaMax, obsIndex: i });
-  }
-
-  // Compute pairwise intersections for rays from different observations.
-  const extremePoints: Point[] = [];
-  for (let i = 0; i < extremeRays.length; i++) {
-    for (let j = i + 1; j < extremeRays.length; j++) {
-      // Only consider rays from different observations.
-      if (extremeRays[i].obsIndex === extremeRays[j].obsIndex) continue;
-      const inter = intersectLines(
-        extremeRays[i].origin, extremeRays[i].theta,
-        extremeRays[j].origin, extremeRays[j].theta
-      );
-      if (inter !== null) {
-        extremePoints.push(inter);
-      }
-    }
-  }
-
-  // Determine the worst-case error radius as the maximum distance from nominalE.
-  let errorRadius = 0;
-  for (const pt of extremePoints) {
-    const d = distance(nominalE, pt);
-    if (d > errorRadius) errorRadius = d;
-  }
-
-  return { estimatedX: nominalE.x, estimatedZ: nominalE.z, errorRadius };
-}
-
-
-
-/**
- * Given a set of observations and a set of offsets (one per observation),
- * compute the intersection point. For each observation, the true computed coordinate is assumed to be
- * (obs.relX + deltaX, obs.relZ + deltaZ), where deltaX and deltaZ are in [0,1).
- */
-function computeIntersectionForSample(
-  observations: Observation[],
-  offsets: { deltaX: number; deltaZ: number }[]
-): Point {
-  const rays: Ray[] = observations.map((obs, i) => {
-    const origin: Point = { x: obs.playerX, z: obs.playerZ };
-    const samplePoint: Point = { x: obs.relX + offsets[i].deltaX, z: obs.relZ + offsets[i].deltaZ };
-    const d = normalize({ x: samplePoint.x - origin.x, z: samplePoint.z - origin.z });
-    return { origin, d };
-  });
-  return computeLeastSquaresIntersection(rays);
-}
 
 /**
  * Computes the intersection point for a given set of offsets.
@@ -381,44 +266,6 @@ function computeIntersectionForOffsets(
     return { origin, d };
   });
   return computeLeastSquaresIntersection(rays);
-}
-
-
-
-/**
- * Approximates the worst-case error using Monte Carlo sampling.
- *
- * Instead of enumerating all 4^n combinations, we sample a number of combinations.
- *
- * @param observations The array of observations.
- * @param samples Number of Monte Carlo samples.
- * @returns The approximated worst-case error bound (in blocks).
- */
-export function monteCarloWorstCaseError(observations: Observation[], samples: number): number {
-  const nominal = computeNominalIntersection(observations);
-  let worstError = 0;
-  for (let s = 0; s < samples; s++) {
-    const offsets = observations.map(() => ({
-      deltaX: Math.random(), // Uniformly in [0,1)
-      deltaZ: Math.random()
-    }));
-    const sampleIntersection = computeIntersectionForSample(observations, offsets);
-    const error = distance(nominal, sampleIntersection);
-    if (error > worstError) worstError = error;
-  }
-  return worstError;
-}
-
-/**
- * A new version of triangulateEvent that returns the nominal intersection as before,
- * but uses Monte Carlo sampling to approximate a tight worst-case error estimate.
- */
-export function triangulateEvent2(observations: Observation[], monteCarloSamples = 10000): { estimatedX: number; estimatedZ: number; errorRadius: number } | null {
-  if (observations.length === 0) return null;
-  const nominal = computeNominalIntersection(observations);
-  // Approximate worst-case error using Monte Carlo sampling.
-  const errorRadius = monteCarloWorstCaseError(observations, monteCarloSamples);
-  return { estimatedX: nominal.x, estimatedZ: nominal.z, errorRadius };
 }
 
 
@@ -484,135 +331,6 @@ export function triangulateEventLinear(observations: Observation[]): { estimated
 }
 
 
-
-/**
- * Given parameters (E.x, E.z, f_0, g_0, ..., f_{n-1}, g_{n-1}),
- * computes the cost:
- *
- * For observation i (with position P_i and reported relative coordinate (relX_i, relZ_i)),
- * let:
- *   Q_i = (relX_i + f_i, relZ_i + g_i)
- * and
- *   u_i = (Q_i - P_i)/||Q_i - P_i||
- *   v_i = (E - P_i)/||E - P_i||
- *
- * Then cost = sum_i || u_i - v_i ||^2.
- */
-function costFunction(
-  observations: Observation[],
-  params: number[]
-): number {
-  const n = observations.length;
-  const E: Point = { x: params[0], z: params[1] };
-  let cost = 0;
-  for (let i = 0; i < n; i++) {
-    const obs = observations[i];
-    const f = params[2 + 2 * i];
-    const g = params[2 + 2 * i + 1];
-    const P: Point = { x: obs.playerX, z: obs.playerZ };
-    const Q: Point = { x: obs.relX + f, z: obs.relZ + g };
-    const vecQ = { x: Q.x - P.x, z: Q.z - P.z };
-    const vecE = { x: E.x - P.x, z: E.z - P.z };
-    const normQ = Math.hypot(vecQ.x, vecQ.z);
-    const normE = Math.hypot(vecE.x, vecE.z);
-    // If either vector is degenerate, skip (or add large penalty)
-    if (normQ < 1e-8 || normE < 1e-8) {
-      cost += 1e6;
-      continue;
-    }
-    const u = { x: vecQ.x / normQ, z: vecQ.z / normQ };
-    const v = { x: vecE.x / normE, z: vecE.z / normE };
-    const diffX = u.x - v.x;
-    const diffZ = u.z - v.z;
-    cost += diffX * diffX + diffZ * diffZ;
-  }
-  return cost;
-}
-
-/**
- * Computes a numerical gradient of costFunction with respect to params.
- */
-function computeGradient(
-  observations: Observation[],
-  params: number[],
-  delta: number = 1e-5
-): number[] {
-  const grad: number[] = [];
-  const baseCost = costFunction(observations, params);
-  for (let i = 0; i < params.length; i++) {
-    const temp = params[i];
-    params[i] = temp + delta;
-    const costPlus = costFunction(observations, params);
-    grad[i] = (costPlus - baseCost) / delta;
-    params[i] = temp; // restore
-  }
-  return grad;
-}
-
-/**
- * Performs a simple gradient descent to minimize the cost function.
- * We project the fractional parameters into [0,1].
- */
-function optimizeTriangulation(
-  observations: Observation[],
-  numIters: number = 1000,
-  lr: number = 1e-3
-): number[] {
-  const n = observations.length;
-  // params: [E.x, E.z, f0, g0, f1, g1, ..., f_{n-1}, g_{n-1}]
-  // Initialize E as the nominal intersection (using (0.5,0.5) for fractions)
-  let initialFractions = new Array(2 * n).fill(0.5);
-  // For a rough initial E, we use the nominal intersection from our earlier method.
-  const nominalRays = observations.map(obs => {
-    const origin = { x: obs.playerX, z: obs.playerZ };
-    const center = { x: Math.floor(obs.relX) + 0.5, z: Math.floor(obs.relZ) + 0.5 };
-    const d = normalize({ x: center.x - origin.x, z: center.z - origin.z });
-    return { origin, d };
-  });
-  const initialE = computeLeastSquaresIntersection(nominalRays);
-  let params: number[] = [initialE.x, initialE.z, ...initialFractions];
-
-  for (let iter = 0; iter < numIters; iter++) {
-    const grad = computeGradient(observations, params);
-    for (let i = 0; i < params.length; i++) {
-      params[i] -= lr * grad[i];
-    }
-    // Project the fractional parts into [0,1]
-    for (let i = 2; i < params.length; i++) {
-      if (params[i] < 0) params[i] = 0;
-      if (params[i] > 1) params[i] = 1;
-    }
-    // Optionally, you can decrease the learning rate or check convergence.
-  }
-  return params;
-}
-
-/**
- * New triangulation function that uses optimization to recover fractional offsets.
- * It returns a refined estimate of the event location E and also (optionally) the recovered fractions.
- *
- * @param observations - Array of observations.
- * @param numIters - Number of iterations for gradient descent.
- * @param lr - Learning rate.
- * @returns Object containing estimatedX, estimatedZ, and optionally fractions.
- */
-export function triangulateEventOptimized(
-  observations: Observation[],
-  numIters: number = 1000,
-  lr: number = 1e-3
-): { estimatedX: number; estimatedZ: number; fractions: { f: number; g: number }[], errorRadius: number } | null {
-  if (observations.length === 0) return null;
-  const optimizedParams = optimizeTriangulation(observations, numIters, lr);
-  const E = { x: optimizedParams[0], z: optimizedParams[1] };
-  const fractions: { f: number; g: number }[] = [];
-  for (let i = 0; i < observations.length; i++) {
-    const f = optimizedParams[2 + 2 * i];
-    const g = optimizedParams[2 + 2 * i + 1];
-    fractions.push({ f, g });
-  }
-  return { estimatedX: E.x, estimatedZ: E.z, fractions, errorRadius: 0 };
-}
-
 /**
  * Generates an array of evenly spaced numbers between 0 and 1, inclusive.
  * @param steps - The number of divisions within [0,1] (e.g., 8 results in 9 values).
@@ -626,38 +344,6 @@ export function generateCandidateFractions(steps: number): number[] {
   return fractions;
 }
 
-
-/**
- * Computes a cost for a given set of offsets.
- * For each observation i:
- *   Q_i = (obs.relX + offset.dx, obs.relZ + offset.dz)
- * Let u_i = (Q_i - P_i)/||Q_i - P_i|| and v_i = (E - P_i)/||E - P_i||,
- * where E is the intersection computed with these offsets.
- * The cost is the sum over observations of ||u_i - v_i||^2.
- * Lower cost indicates better consistency.
- */
-function computeCost(
-  observations: Observation[],
-  offsets: { dx: number; dz: number }[]
-): number {
-  const E = computeIntersectionForOffsets(observations, offsets);
-  let cost = 0;
-  for (let i = 0; i < observations.length; i++) {
-    const obs = observations[i];
-    const P: Point = { x: obs.playerX, z: obs.playerZ };
-    const Q: Point = { x: obs.relX + offsets[i].dx, z: obs.relZ + offsets[i].dz };
-    const vecQ = { x: Q.x - P.x, z: Q.z - P.z };
-    const normQ = Math.hypot(vecQ.x, vecQ.z);
-    const u = { x: vecQ.x / normQ, z: vecQ.z / normQ };
-
-    const vecE = { x: E.x - P.x, z: E.z - P.z };
-    const normE = Math.hypot(vecE.x, vecE.z);
-    const v = { x: vecE.x / normE, z: vecE.z / normE };
-
-    cost += Math.pow(u.x - v.x, 2) + Math.pow(u.z - v.z, 2);
-  }
-  return cost;
-}
 
 /**
  * Computes the orthogonal distance from point E to a ray defined by (origin, d).
@@ -759,6 +445,8 @@ function searchCandidateOffsets(
   rec(0, []);
   return { bestOffsets, bestResidual, bestE: bestE! };
 }
+
+
 /**
  * Final triangulation function that uses a candidate search over fractional offsets,
  * selects the combination that minimizes the residual cost (i.e. the sum of distances
