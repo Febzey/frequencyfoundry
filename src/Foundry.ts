@@ -2,95 +2,105 @@ import Listener from "./listener";
 import EventEmitter from "events";
 import SoundWaveForge from "./theForge";
 import { database, discord } from "./index";
-// import type {Soundwave} from './types'
+import type { Soundwave } from "./types";
+import "dotenv/config";
+import { time } from "discord.js";
+import { Observation, generateCandidateFractions, triangulateEventByResidual, triangulateEventLinear } from "./cracking/triangulation";
+import { computeRelativeCoords } from "./cracking/build_test_utils";
 
 /**
  * The frequency foundry, all the listeners are created and will listen here.
  */
-export default class Foundry extends EventEmitter {
 
-    /**
-     * Our last three soundwaves. Clear after three. and on three we perform calculations.
-     */
-    private soundCache = new Map<number, Soundwave>();
+const users = process.env.accounts!.split(",");
+const userAmt = process.env.acc_amt == null ? users.length : parseInt(process.env.acc_amt);
+users.splice(userAmt);
+
+export default class Foundry extends EventEmitter {
+  /**
+   * Our last three soundwaves. Clear after three. and on three we perform calculations.
+   */
+  private soundCache = new Map<number, Soundwave>();
 
     private soundListeners: Map<number, Listener> = new Map();
-    // Now we have 4 accounts total
     private listenerUserNames: { acc: number, email: string | undefined }[] = [
         { acc: 1, email: process.env.account1 },
-        { acc: 2, email: process.env.account2 },
-        { acc: 3, email: process.env.account3 },
-        { acc: 4, email: process.env.account4 }
+        { acc: 3, email: process.env.account3 } ,// only two now
     ];
 
-    constructor() {
-        super();
-    }
+  constructor() {
+    super();
+  }
 
-    public initialize(): void {
-        this.startListeners();
-    }
+  public initialize(): void {
+    this.startListeners();
+  }
 
-    private async startListeners(): Promise<void> {
-        for (let i = 0; i < this.listenerUserNames.length; i++) {
-            const listener = new Listener(this.listenerUserNames[i].email as string);
+  private async startListeners(): Promise<void> {
+    for (let i = 0; i < this.listenerUserNames.length; i++) {
+      const listener = new Listener(this.listenerUserNames[i].email as string);
 
             listener.on("soundwave", (wave) => {
                 this.soundCache.set(this.listenerUserNames[i].acc, wave);
-                console.log(`User: ${wave.user} => wave from acc ${this.listenerUserNames[i].acc}`);
-                // Wait for 4 waves
-                if (this.soundCache.size === 4) {
-                    console.log("All 4 listeners have emitted. Performing calculation...");
+                console.log(`User: ${wave.user} emitted a soundwave.`);
+
+                if (this.soundCache.size === 2) {
+                    console.log("Both listeners have emitted. Performing calculation...");
                     this.performCalculations();
                     this.soundCache.clear();
                 }
             });
 
-            this.soundListeners.set(this.listenerUserNames[i].acc, listener);
-            await new Promise(r => setTimeout(r, 16000));
+      listener.bot.once('spawn', () => {
+        this.soundListeners.set(this.listenerUserNames[i].acc, listener);
+      })
 
-        }
+      await new Promise((r) => setTimeout(r, 500));
     }
+  }
 
     private async performCalculations(): Promise<void> {
         const wave1 = this.soundCache.get(1);
-        const wave2 = this.soundCache.get(2);
         const wave3 = this.soundCache.get(3);
-        const wave4 = this.soundCache.get(4);
-        if (!wave1 || !wave2 || !wave3 || !wave4) return;
 
-        // Pair 1,2 => intersection (i12)
-        const i12 = SoundWaveForge.calculateAccurateWitherSpawn(
-            wave1.bPosition, wave1.wPosition,
-            wave2.bPosition, wave2.wPosition,
-            8
-        );
-        // Pair 3,4 => intersection (i34)
-        const i34 = SoundWaveForge.calculateAccurateWitherSpawn(
-            wave3.bPosition, wave3.wPosition,
-            wave4.bPosition, wave4.wPosition,
-            8
-        );
-        if (!i12 || !i34) {
-            console.log("One of the team intersections was null.");
+        if (!wave1 || !wave3) {
+            console.error("Could not find both soundwaves.");
             return;
         }
-        // Final intersection from the two intersection points
-        const finalPos = SoundWaveForge.calculateFinalIntersection(
-            wave1.bPosition, i12,
-            wave3.bPosition, i34
-        );
-        console.log("Final intersection:", finalPos);
-        if (!finalPos) return;
 
-        database.logSpawn(finalPos);
+        console.log(`(1) ${wave1.user} => bPos(${wave1.bPosition.x},${wave1.bPosition.y},${wave1.bPosition.z}) wPos(${wave1.wPosition.x},${wave1.wPosition.y},${wave1.wPosition.z})`);
+        console.log(`(3) ${wave3.user} => bPos(${wave3.bPosition.x},${wave3.bPosition.y},${wave3.bPosition.z}) wPos(${wave3.wPosition.x},${wave3.wPosition.y},${wave3.wPosition.z})`);
+
+        const pos = SoundWaveForge.calculateAccurateWitherSpawn(
+            wave1.bPosition, wave1.wPosition,
+            wave3.bPosition, wave3.wPosition,
+            8
+        );
+
+    
+        console.log("Intersection:", pos);
+
+        if (!pos) {
+            console.log("No intersection found.");
+            return;
+        }
+
+        database.logSpawn(pos);
         discord.sendCoordinatesEmbed(
             process.env.channel as string,
             "yellow",
-            { x: Math.floor(finalPos.x), y: Math.floor(finalPos.y), z: Math.floor(finalPos.z) },
+            { x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) },
             "Wither Spawn",
             process.env.mc_server as string,
-            "4-bot triangulation result"
+            `
+            A wither has just spawned! \n
+            If you are using the mod. copy and paste:
+            \`\`\`
+.drawline ${wave1.bPosition.x} ${wave1.bPosition.z} ${wave1.wPosition.x} ${wave1.wPosition.z}
+&
+.drawline ${wave3.bPosition.x} ${wave3.bPosition.z} ${wave3.wPosition.x} ${wave3.wPosition.z}
+            \`\`\`            
+            `
         );
     }
 

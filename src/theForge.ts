@@ -18,12 +18,14 @@ export default class SoundWaveForge {
         bot2Pos: Position, bot2SoundPos: Position,
         viewDistance: number
     ): { x: number; y: number; z: number; error: number } | null {
+        // Create lines from each bot to its raw sound position
         const line1 = this.calculateLine(bot1Pos, bot1SoundPos);
         const line2 = this.calculateLine(bot2Pos, bot2SoundPos);
         const intersection = this.findIntersection(line1, line2);
         if (!intersection) return null;
         const angle = this.getAngleBetweenLines(line1.direction, line2.direction);
         const error = angle < 0.0001 ? Infinity : 1 / Math.sin(angle);
+
         return { ...intersection, error };
     }
 
