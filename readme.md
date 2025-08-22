@@ -14,16 +14,16 @@ We used three to four accounts at the same time, each logging the coordinate hin
 
 The key formula behind our triangulation is
 
-\[
+$$
 x = \frac{c_1 b_2 - b_1 c_2}{a_1 b_2 - b_1 a_2}, \quad
 z = \frac{a_1 c_2 - c_1 a_2}{a_1 b_2 - b_1 a_2}
-\]
+$$
 
-Each line comes from a player's observation converted into the normal form  
+Each line comes from a player's observation converted into the normal form:
 
-\[
+$$
 a x + b z = c
-\]
+$$
 
 Every Wither spawn is basically the intersection of multiple lines like this.
 
