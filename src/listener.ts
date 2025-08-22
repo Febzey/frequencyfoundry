@@ -11,7 +11,7 @@ const effectIds = [
 
 class Listener extends EventEmitter {
 
-    private bot: Bot;
+    public bot: Bot;
     private email: string;
     
     constructor(email: string) {
