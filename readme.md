@@ -55,3 +55,5 @@ Our triangulateEventLinear function turns these observations into precise coordi
 It explores hidden server mechanics most players don’t know exist. It combines geometry, probability, and Minecraft observations into one workflow. Every spawn is recorded, every line intersected, every base discovered. It’s also meant to encourage readers to dive into the code and experiment, seeing how close they can get to pinpointing a Wither themselves.
 
 This is more than code. It’s a map of discovery, a blend of math, strategy, and Minecraft wizardry. Dive in and see how deep the rabbit hole goes.
+
+credits: febzey,mixldn,gen
