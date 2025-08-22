@@ -1,52 +1,57 @@
 # Wither Spawn Mapping Project
 
-Over the past few weeks we’ve been building a system to track and triangulate wither spawns on Minecraft servers. Most players only hear the global wither sound, but the server actually sends a pair of coordinates along with it. These aren’t the exact spawn points — they represent the furthest block within a player’s render distance in the direction of the sound. That means even sounds tens of millions of blocks away produce “pointer blocks” that we can observe.
+Ever wondered where Withers actually spawn? We went deep and mapped them almost down to the block. This isn’t just tracking, it’s precision triangulation using Minecraft in ways few players even realize are possible.
 
-By running multiple accounts simultaneously, each collecting these pointers, we can turn each observation into a vector pointing towards the wither. Using simple geometry, we then determine the intersection of these vectors to pinpoint the spawn location. In short, for observations `O_1, O_2, ..., O_n` from players at positions `P_i = (x_i, z_i)`, each observation provides an angle `θ_i` such that the line from `P_i` in direction `θ_i` intersects the unknown spawn location `S = (X, Z)`. Solving for the intersection of these lines gives:
+## The Mission
 
-```
-S = argmin_S sum_{i=1}^{n} distance(S, L_i)^2
-```
+Minecraft servers (Paper, Folia) technically send Wither spawn sounds globally. Most players only hear the sound, but the server actually sends a pair of coordinates with each spawn. The twist is that these coordinates aren’t the Wither’s exact location. They point to the furthest block from the player in render distance toward the sound. Even if the Wither is millions of blocks away, the server gives a hint inside your render distance.
 
-where `L_i` is the line derived from the `i`-th observation.
+Our goal was to use this subtle hint to pinpoint the actual Wither location.
 
-All collected data is logged to a database, giving us a live map of spawns, hidden bases, and patterns of wither activity.
+## How We Did It
 
-## Triangulation Code Snippets
+We used three to four accounts at the same time, each logging the coordinate hints. Each observation became a vector pointing toward the sound. Using triangulation and probability, we determined where all these vectors intersected. Every spawn was logged, bases were discovered, and everything was stored in a database for later analysis.
 
-Convert a player observation into a half-plane representing the wedge:
+The key formula behind our triangulation is
+
+\[
+x = \frac{c_1 b_2 - b_1 c_2}{a_1 b_2 - b_1 a_2}, \quad
+z = \frac{a_1 c_2 - c_1 a_2}{a_1 b_2 - b_1 a_2}
+\]
+
+Each line comes from a player's observation converted into the normal form  
+
+\[
+a x + b z = c
+\]
+
+Every Wither spawn is basically the intersection of multiple lines like this.
+
+## Code Highlights
+
+Here’s some of the coolest parts of the code:
 
 ```ts
-function getWedgeHalfPlanes(obs: Observation): HalfPlane[] {
-  const P = { x: obs.playerX, z: obs.playerZ };
-  const corners = [
-    { x: obs.relX, z: obs.relZ },
-    { x: obs.relX + 1, z: obs.relZ },
-    { x: obs.relX, z: obs.relZ + 1 },
-    { x: obs.relX + 1, z: obs.relZ + 1 },
-  ];
-  const angles = corners.map(c => Math.atan2(c.z - P.z, c.x - P.x));
-  const lineMin = lineFromPointAngle(P, Math.min(...angles));
-  const lineMax = lineFromPointAngle(P, Math.max(...angles));
-  return [{ a: lineMin.a, b: lineMin.b, c: lineMin.c }, { a: lineMax.a, b: lineMax.b, c: lineMax.c }];
+function lineFromPointAngle(P: Point, theta: number) {
+  const nx = -Math.sin(theta)
+  const nz = Math.cos(theta)
+  const c = nx * P.x + nz * P.z
+  return { a: nx, b: nz, c }
+}
+
+function buildErrorRegion(observations: Observation[]): Point[] {
+  let halfPlanes: HalfPlane[] = []
+  for (const obs of observations) {
+    halfPlanes.push(...getWedgeHalfPlanes(obs))
+  }
+  return intersectHalfPlanes(halfPlanes)
 }
 ```
 
-Intersect a set of half-planes to compute the feasible spawn region:
+Our triangulateEventLinear function turns these observations into precise coordinates and even outputs a visual map showing the actual spawn and the calculated polygon.
 
-```ts
-function intersectHalfPlanes(hpList: HalfPlane[]): Point[] {
-  let polygon: Point[] = [
-    { x: -1e9, z: -1e9 },
-    { x: 1e9, z: -1e9 },
-    { x: 1e9, z: 1e9 },
-    { x: -1e9, z: 1e9 },
-  ];
-  for (const hp of hpList) polygon = clipPolygonAgainstHalfPlane(polygon, hp);
-  return polygon;
-}
-```
+## Why It’s Cool
 
-The system works like a high-precision sonar: each account listens, records, and points towards the wither, and a little geometry magic tells us where it actually spawned. By combining data over time, we’ve been able to uncover hidden bases and generate detailed maps of server activity.
+It explores hidden server mechanics most players don’t know exist. It combines geometry, probability, and Minecraft observations into one workflow. Every spawn is recorded, every line intersected, every base discovered. It’s also meant to encourage readers to dive into the code and experiment, seeing how close they can get to pinpointing a Wither themselves.
 
-Hope you enjoyed this little readme
+This is more than code. It’s a map of discovery, a blend of math, strategy, and Minecraft wizardry. Dive in and see how deep the rabbit hole goes.
