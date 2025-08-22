@@ -15,12 +15,11 @@ export default class Foundry extends EventEmitter {
     private soundCache = new Map<number, Soundwave>();
 
     private soundListeners: Map<number, Listener> = new Map();
-    // Now we have 4 accounts total
+    // Now we have 3 accounts total
     private listenerUserNames: { acc: number, email: string | undefined }[] = [
         { acc: 1, email: process.env.account1 },
         { acc: 2, email: process.env.account2 },
-        { acc: 3, email: process.env.account3 },
-        { acc: 4, email: process.env.account4 }
+        { acc: 3, email: process.env.account3 }
     ];
 
     constructor() {
@@ -38,9 +37,9 @@ export default class Foundry extends EventEmitter {
             listener.on("soundwave", (wave) => {
                 this.soundCache.set(this.listenerUserNames[i].acc, wave);
                 console.log(`User: ${wave.user} => wave from acc ${this.listenerUserNames[i].acc}`);
-                // Wait for 4 waves
-                if (this.soundCache.size === 4) {
-                    console.log("All 4 listeners have emitted. Performing calculation...");
+                // Wait for 3 waves
+                if (this.soundCache.size === 3) {
+                    console.log("All 3 listeners have emitted. Performing calculation...");
                     this.performCalculations();
                     this.soundCache.clear();
                 }
@@ -56,42 +55,41 @@ export default class Foundry extends EventEmitter {
         const wave1 = this.soundCache.get(1);
         const wave2 = this.soundCache.get(2);
         const wave3 = this.soundCache.get(3);
-        const wave4 = this.soundCache.get(4);
-        if (!wave1 || !wave2 || !wave3 || !wave4) return;
+        if (!wave1 || !wave2 || !wave3) return;
 
-        // Pair 1,2 => intersection (i12)
-        const i12 = SoundWaveForge.calculateAccurateWitherSpawn(
+        const forgeConfig = {
+            clampDistance: parseInt(process.env.FORGE_CLAMP_DIST ?? "5000", 10),
+            minY: parseInt(process.env.FORGE_MIN_Y ?? "60", 10),
+            viewDistance: parseInt(process.env.FORGE_VIEW_DIST ?? "8", 10)
+        };
+
+        const finalPos = SoundWaveForge.triangulateEventLinear(
             wave1.bPosition, wave1.wPosition,
             wave2.bPosition, wave2.wPosition,
-            8
-        );
-        // Pair 3,4 => intersection (i34)
-        const i34 = SoundWaveForge.calculateAccurateWitherSpawn(
             wave3.bPosition, wave3.wPosition,
-            wave4.bPosition, wave4.wPosition,
-            8
+            forgeConfig
         );
-        if (!i12 || !i34) {
-            console.log("One of the team intersections was null.");
+        if (!finalPos) {
+            console.log("Could not triangulate the event linearly.");
             return;
         }
-        // Final intersection from the two intersection points
-        const finalPos = SoundWaveForge.calculateFinalIntersection(
-            wave1.bPosition, i12,
-            wave3.bPosition, i34
-        );
-        console.log("Final intersection:", finalPos);
-        if (!finalPos) return;
-
+        console.log("Triangulated position:", finalPos);
         database.logSpawn(finalPos);
         discord.sendCoordinatesEmbed(
             process.env.channel as string,
-            "yellow",
+            "blue",
             { x: Math.floor(finalPos.x), y: Math.floor(finalPos.y), z: Math.floor(finalPos.z) },
-            "Wither Spawn",
+            "Wither Spawn (3-bot linear triangulation)",
             process.env.mc_server as string,
-            "4-bot triangulation result"
+            "3-bot triangulation result"
         );
     }
+
+    // private getQuadrant(x: number, z: number): number {
+    //     if (x >= 0 && z >= 0) return 1;
+    //     if (x < 0 && z >= 0) return 2;
+    //     if (x < 0 && z < 0) return 3;
+    //     return 4; 
+    // }
 
 }
