@@ -58,7 +58,11 @@ class Listener extends EventEmitter {
             host: process.env.host,
             port: Number(process.env.port),
             username: this.email,
+<<<<<<< HEAD
            // auth: "microsoft",
+=======
+            // auth: "microsoft",
+>>>>>>> ccedeeebc7fe82cdba45f4d1ebc35e60c77acebf
             version: process.env.version,
             viewDistance: "far",
             respawn: true
