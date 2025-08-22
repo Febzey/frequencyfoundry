@@ -29,27 +29,42 @@ Every Wither spawn is basically the intersection of multiple lines like this.
 
 ## Code Highlights
 
-Here’s some of the coolest parts of the code:
+Here’s a snippet out of the thousands of lines of code:
 
 ```ts
-function lineFromPointAngle(P: Point, theta: number) {
-  const nx = -Math.sin(theta)
-  const nz = Math.cos(theta)
-  const c = nx * P.x + nz * P.z
-  return { a: nx, b: nz, c }
+function getWedgeHalfPlanes(obs: Observation): HalfPlane[] {
+  const P = { x: obs.playerX, z: obs.playerZ };
+  const corners = [
+    { x: obs.relX, z: obs.relZ },
+    { x: obs.relX + 1, z: obs.relZ },
+    { x: obs.relX, z: obs.relZ + 1 },
+    { x: obs.relX + 1, z: obs.relZ + 1 },
+  ];
+  const angles = corners.map(c => Math.atan2(c.z - P.z, c.x - P.x));
+  const thetaMin = Math.min(...angles);
+  const thetaMax = Math.max(...angles);
+  return [lineFromPointAngle(P, thetaMin), lineFromPointAngle(P, thetaMax)];
 }
 
-function buildErrorRegion(observations: Observation[]): Point[] {
-  let halfPlanes: HalfPlane[] = []
-  for (const obs of observations) {
-    halfPlanes.push(...getWedgeHalfPlanes(obs))
+export function intersectHalfPlanes(hpList: HalfPlane[]): Point[] {
+  let polygon: Point[] = [
+    { x: -1e9, z: -1e9 },
+    { x: 1e9, z: -1e9 },
+    { x: 1e9, z: 1e9 },
+    { x: -1e9, z: 1e9 },
+  ];
+
+  for (const hp of hpList) {
+    polygon = clipPolygonAgainstHalfPlane(polygon, hp);
+    if (polygon.length === 0) break;
   }
-  return intersectHalfPlanes(halfPlanes)
+
+  return polygon;
 }
 ```
+- `getWedgeHalfPlanes` takes a single player’s observation of a wither sound and turns it into two “lines” forming a wedge. These wedges represent the possible directions the wither could be in from that player’s perspective. Each observation gives a constraint on the location.
 
-Our triangulateEventLinear function turns these observations into precise coordinates and even outputs a visual map showing the actual spawn and the calculated polygon.
-
+- `intersectHalfPlanes` takes all the wedges from multiple players and finds the region where they all overlap. This intersection is the feasible area where the wither actually spawned. By combining observations like this, we can narrow down thousands of possible blocks to a tiny polygon.
 ## Why It’s Cool
 
 It explores hidden server mechanics most players don’t know exist. It combines geometry, probability, and Minecraft observations into one workflow. Every spawn is recorded, every line intersected, every base discovered. It’s also meant to encourage readers to dive into the code and experiment, seeing how close they can get to pinpointing a Wither themselves.

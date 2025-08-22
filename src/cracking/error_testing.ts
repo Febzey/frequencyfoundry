@@ -48,13 +48,9 @@ function getWedgeHalfPlanes(obs: Observation): HalfPlane[] {
     { x: obs.relX, z: obs.relZ + 1 },
     { x: obs.relX + 1, z: obs.relZ + 1 },
   ];
-  // Compute angles
   const angles = corners.map((c) => Math.atan2(c.z - P.z, c.x - P.x));
   let thetaMin = Math.min(...angles);
   let thetaMax = Math.max(...angles);
-  // We'll create 2 half-planes bounding E between thetaMin and thetaMax.
-  // lineMin = lineFromPointAngle(P, thetaMin)
-  // lineMax = lineFromPointAngle(P, thetaMax)
   const lineMin = lineFromPointAngle(P, thetaMin);
   const lineMax = lineFromPointAngle(P, thetaMax);
 
